@@ -24,20 +24,33 @@ class Task:
 
     id: str
     title: str
+    description: str
     status: TaskStatus
     jira_key: str | None
+    parent_id: str | None
+    next_action: str | None
     created_at: str
     updated_at: str
 
     @classmethod
-    def new(cls, title: str, jira_key: str | None = None) -> Task:
+    def new(
+        cls,
+        title: str,
+        description: str,
+        jira_key: str | None = None,
+        parent_id: str | None = None,
+        next_action: str | None = None,
+    ) -> Task:
         """新しいタスクを作成する."""
         now = datetime.now(timezone.utc).isoformat()
         return cls(
             id=str(ULID()),
             title=title,
+            description=description,
             status=TaskStatus.TODO,
             jira_key=jira_key,
+            parent_id=parent_id,
+            next_action=next_action,
             created_at=now,
             updated_at=now,
         )

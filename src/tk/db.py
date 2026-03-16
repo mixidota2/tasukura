@@ -10,14 +10,19 @@ from tk.models import ProgressLog, Task, TaskStatus
 
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "tk" / "tasks.db"
 
+_TASK_COLUMNS = "id, title, description, status, jira_key, parent_id, next_action, created_at, updated_at"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
-    id         TEXT PRIMARY KEY,
-    title      TEXT NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'todo',
-    jira_key   TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'todo',
+    jira_key    TEXT,
+    parent_id   TEXT REFERENCES tasks(id),
+    next_action TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS progress_logs (
@@ -30,6 +35,12 @@ CREATE TABLE IF NOT EXISTS progress_logs (
 );
 """
 
+_MIGRATIONS = [
+    "ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id)",
+    "ALTER TABLE tasks ADD COLUMN next_action TEXT",
+]
+
 
 class TaskDB:
     """タスクDBの操作を提供する."""
@@ -41,27 +52,54 @@ class TaskDB:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
+        self._run_migrations()
+
+    def _run_migrations(self) -> None:
+        """マイグレーションを実行する。既存DBへのカラム追加等."""
+        for migration in _MIGRATIONS:
+            try:
+                self._conn.execute(migration)
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                # カラムが既に存在する場合は無視
+                pass
 
     def close(self) -> None:
         """DB接続を閉じる."""
         self._conn.close()
 
-    def add_task(self, title: str, jira_key: str | None = None) -> Task:
+    @staticmethod
+    def _row_to_task(r: tuple) -> Task:
+        """DBの行をTaskに変換する。カラム順は _TASK_COLUMNS に従う."""
+        return Task(
+            id=r[0], title=r[1], description=r[2], status=TaskStatus(r[3]),
+            jira_key=r[4], parent_id=r[5], next_action=r[6],
+            created_at=r[7], updated_at=r[8],
+        )
+
+    def add_task(
+        self,
+        title: str,
+        description: str,
+        jira_key: str | None = None,
+        parent_id: str | None = None,
+        next_action: str | None = None,
+    ) -> Task:
         """タスクを追加する."""
-        task = Task.new(title=title, jira_key=jira_key)
+        task = Task.new(title=title, description=description, jira_key=jira_key, parent_id=parent_id, next_action=next_action)
         self._conn.execute(
-            "INSERT INTO tasks (id, title, status, jira_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (task.id, task.title, task.status.value, task.jira_key, task.created_at, task.updated_at),
+            f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task.id, task.title, task.description, task.status.value, task.jira_key, task.parent_id, task.next_action, task.created_at, task.updated_at),
         )
         self._conn.commit()
         return task
 
     def get_task(self, task_id: str) -> Task | None:
         """タスクをIDで取得する."""
-        row = self._conn.execute("SELECT id, title, status, jira_key, created_at, updated_at FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = self._conn.execute(f"SELECT {_TASK_COLUMNS} FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             return None
-        return Task(id=row[0], title=row[1], status=TaskStatus(row[2]), jira_key=row[3], created_at=row[4], updated_at=row[5])
+        return self._row_to_task(row)
 
     def list_tasks(
         self,
@@ -69,7 +107,7 @@ class TaskDB:
         jira_only: bool = False,
     ) -> list[Task]:
         """タスク一覧を取得する."""
-        query = "SELECT id, title, status, jira_key, created_at, updated_at FROM tasks WHERE 1=1"
+        query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE 1=1"
         params: list[str] = []
 
         if statuses:
@@ -82,7 +120,46 @@ class TaskDB:
 
         query += " ORDER BY created_at DESC"
         rows = self._conn.execute(query, params).fetchall()
-        return [Task(id=r[0], title=r[1], status=TaskStatus(r[2]), jira_key=r[3], created_at=r[4], updated_at=r[5]) for r in rows]
+        return [self._row_to_task(r) for r in rows]
+
+    def update_task(
+        self,
+        task_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        jira_key: str | None = None,
+        next_action: str | None = None,
+    ) -> Task:
+        """タスクのフィールドを更新する。指定されたフィールドのみ更新."""
+        task = self.get_task(task_id)
+        if task is None:
+            msg = f"Task {task_id} not found"
+            raise ValueError(msg)
+        updates: list[str] = []
+        params: list[str] = []
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if jira_key is not None:
+            updates.append("jira_key = ?")
+            params.append(jira_key)
+        if next_action is not None:
+            updates.append("next_action = ?")
+            params.append(next_action)
+        if not updates:
+            return task
+        now = datetime.now(timezone.utc).isoformat()
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(task_id)
+        self._conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
+        self._conn.commit()
+        updated = self.get_task(task_id)
+        assert updated is not None
+        return updated
 
     def update_status(self, task_id: str, status: TaskStatus) -> Task:
         """タスクのステータスを更新する."""
@@ -129,9 +206,11 @@ class TaskDB:
         """
         if date is None:
             date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # _TASK_COLUMNS のカラムをt.プレフィックス付きで生成
+        task_cols = ", ".join(f"t.{c.strip()}" for c in _TASK_COLUMNS.split(","))
         rows = self._conn.execute(
-            """
-            SELECT t.id, t.title, t.status, t.jira_key, t.created_at, t.updated_at,
+            f"""
+            SELECT {task_cols},
                    l.id, l.task_id, l.summary, l.details, l.remaining, l.created_at
             FROM progress_logs l
             JOIN tasks t ON t.id = l.task_id
@@ -140,10 +219,11 @@ class TaskDB:
             """,
             (f"{date}%",),
         ).fetchall()
+        task_col_count = len(_TASK_COLUMNS.split(","))
         return [
             (
-                Task(id=r[0], title=r[1], status=TaskStatus(r[2]), jira_key=r[3], created_at=r[4], updated_at=r[5]),
-                ProgressLog(id=r[6], task_id=r[7], summary=r[8], details=r[9], remaining=r[10], created_at=r[11]),
+                self._row_to_task(r[:task_col_count]),
+                ProgressLog(id=r[task_col_count], task_id=r[task_col_count + 1], summary=r[task_col_count + 2], details=r[task_col_count + 3], remaining=r[task_col_count + 4], created_at=r[task_col_count + 5]),
             )
             for r in rows
         ]

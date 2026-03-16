@@ -8,7 +8,7 @@ from typing import Annotated, Optional
 import typer
 
 from tk.db import TaskDB
-from tk.models import TaskStatus
+from tk.models import Task, TaskStatus
 
 app = typer.Typer(help="tk - ローカルタスク管理CLI")
 
@@ -20,32 +20,46 @@ def _get_db() -> TaskDB:
 
 
 def _short_id(task_id: str) -> str:
-    """IDの先頭8文字を表示用に返す."""
-    return task_id[:8]
+    """IDの先頭12文字を表示用に返す.
+
+    ULIDの先頭10文字はタイムスタンプ（ミリ秒精度）のため、
+    同時刻に作成されたタスクでも識別できるようランダム部2文字を含む12文字を使用する。
+    """
+    return task_id[:12]
 
 
 @app.command()
 def add(
     title: str,
+    description: Annotated[str, typer.Option(help="タスクのゴール・完了条件・背景")],
     jira: Annotated[Optional[str], typer.Option(help="JIRAチケットキー (例: PROJ-123)")] = None,
+    parent: Annotated[Optional[str], typer.Option(help="親タスクID")] = None,
+    next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと")] = None,
 ) -> None:
     """タスクを追加する."""
     db = _get_db()
-    task = db.add_task(title, jira_key=jira)
+    parent_id = _resolve_id(db, parent) if parent else None
+    task = db.add_task(title, description=description, jira_key=jira, parent_id=parent_id, next_action=next_action)
     db.close()
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
+    typer.echo(f"  description: {task.description}")
     typer.echo(f"  status: {task.status.value}")
     if task.jira_key:
         typer.echo(f"  jira: {task.jira_key}")
+    if task.parent_id:
+        typer.echo(f"  parent: {_short_id(task.parent_id)}")
+    if task.next_action:
+        typer.echo(f"  next: {task.next_action}")
 
 
 @app.command("list")
 def list_tasks(
     status: Annotated[Optional[str], typer.Option(help="カンマ区切りのステータス (例: todo,in_progress)")] = None,
     jira_only: Annotated[bool, typer.Option("--jira-only", help="JIRA連携タスクのみ")] = False,
+    flat: Annotated[bool, typer.Option("--flat", help="フラット表示（ツリーなし）")] = False,
 ) -> None:
-    """タスク一覧を表示する."""
+    """タスク一覧を表示する。デフォルトはツリー表示."""
     db = _get_db()
     statuses = [TaskStatus(s.strip()) for s in status.split(",")] if status else None
     tasks = db.list_tasks(statuses=statuses, jira_only=jira_only)
@@ -53,9 +67,61 @@ def list_tasks(
     if not tasks:
         typer.echo("タスクなし")
         return
+    if flat:
+        for t in tasks:
+            _print_task_line(t)
+    else:
+        _print_task_tree(tasks)
+
+
+def _print_task_line(t: Task, indent: str = "") -> None:
+    """タスク1行を表示する."""
+    jira = f" [{t.jira_key}]" if t.jira_key else ""
+    next_act = f" -> {t.next_action}" if t.next_action else ""
+    typer.echo(f"{indent}{_short_id(t.id)}  {t.status.value:<12} {t.title}{jira}{next_act}")
+
+
+def _print_task_tree(tasks: list[Task]) -> None:
+    """タスクをツリー形式で表示する。親なしタスクをルートとして階層表示."""
+    children: dict[str | None, list[Task]] = {}
     for t in tasks:
-        jira = f" [{t.jira_key}]" if t.jira_key else ""
-        typer.echo(f"{_short_id(t.id)}  {t.status.value:<12} {t.title}{jira}")
+        children.setdefault(t.parent_id, []).append(t)
+
+    def _print_children(parent_id: str | None, indent: str) -> None:
+        for child in children.get(parent_id, []):
+            _print_task_line(child, indent)
+            _print_children(child.id, indent + "  ")
+
+    # ルートタスク（parent_idがNone）を表示
+    for t in children.get(None, []):
+        _print_task_line(t)
+        _print_children(t.id, "  ")
+
+    # parent_idがセットされているが、親がフィルタで除外されたタスクも表示
+    displayed_ids = {t.id for t in tasks}
+    for t in tasks:
+        if t.parent_id is not None and t.parent_id not in displayed_ids:
+            _print_task_line(t)
+
+
+@app.command()
+def update(
+    task_id: str,
+    title: Annotated[Optional[str], typer.Option(help="タスク名")] = None,
+    description: Annotated[Optional[str], typer.Option(help="タスクのゴール・完了条件・背景")] = None,
+    jira: Annotated[Optional[str], typer.Option(help="JIRAチケットキー")] = None,
+    next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと")] = None,
+) -> None:
+    """タスクのフィールドを更新する."""
+    db = _get_db()
+    resolved_id = _resolve_id(db, task_id)
+    task = db.update_task(resolved_id, title=title, description=description, jira_key=jira, next_action=next_action)
+    db.close()
+    typer.echo(f"Updated: {_short_id(task.id)}  {task.title}")
+    if description is not None:
+        typer.echo(f"  description: {task.description}")
+    if next_action is not None:
+        typer.echo(f"  next: {task.next_action}")
 
 
 @app.command()
@@ -77,17 +143,22 @@ def log(
     summary: Annotated[str, typer.Option(help="やったことの要約")],
     details: Annotated[Optional[str], typer.Option(help="変更ファイル等の詳細")] = None,
     remaining: Annotated[Optional[str], typer.Option(help="残タスク・ブロッカー")] = None,
+    next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと（タスク本体も更新）")] = None,
 ) -> None:
     """進捗ログを記録する."""
     db = _get_db()
     resolved_id = _resolve_id(db, task_id)
     entry = db.add_log(resolved_id, summary=summary, details=details, remaining=remaining)
+    if next_action is not None:
+        db.update_task(resolved_id, next_action=next_action)
     db.close()
     typer.echo(f"Logged: {entry.summary}")
     if entry.details:
         typer.echo(f"  details: {entry.details}")
     if entry.remaining:
         typer.echo(f"  remaining: {entry.remaining}")
+    if next_action is not None:
+        typer.echo(f"  next: {next_action}")
 
 
 @app.command()
@@ -100,14 +171,26 @@ def show(task_id: str) -> None:
         typer.echo(f"Task {task_id} not found")
         raise typer.Exit(1)
     logs = db.get_logs(resolved_id)
+    child_tasks = [t for t in db.list_tasks() if t.parent_id == task.id]
     db.close()
 
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
+    if task.description:
+        typer.echo(f"  description: {task.description}")
     typer.echo(f"  status: {task.status.value}")
     if task.jira_key:
         typer.echo(f"  jira: {task.jira_key}")
+    if task.parent_id:
+        typer.echo(f"  parent: {_short_id(task.parent_id)}")
+    if task.next_action:
+        typer.echo(f"  next: {task.next_action}")
     typer.echo(f"  created: {task.created_at}")
+    if child_tasks:
+        typer.echo("\nChildren:")
+        for child in child_tasks:
+            _print_task_line(child, "  ")
+
     typer.echo("")
     if logs:
         typer.echo("Progress:")

@@ -19,17 +19,32 @@ def db():
 
 
 def test_add_and_get_task(db: TaskDB):
-    task = db.add_task("テスト実装", jira_key="PROJ-123")
+    task = db.add_task("テスト実装", description="テストを書く", jira_key="PROJ-123")
     fetched = db.get_task(task.id)
     assert fetched is not None
     assert fetched.title == "テスト実装"
+    assert fetched.description == "テストを書く"
     assert fetched.jira_key == "PROJ-123"
     assert fetched.status == TaskStatus.TODO
 
 
+def test_add_task_with_parent(db: TaskDB):
+    parent = db.add_task("親タスク", description="親の説明")
+    child = db.add_task("子タスク", description="子の説明", parent_id=parent.id)
+    assert child.parent_id == parent.id
+    fetched = db.get_task(child.id)
+    assert fetched is not None
+    assert fetched.parent_id == parent.id
+
+
+def test_add_task_with_next_action(db: TaskDB):
+    task = db.add_task("タスク", description="説明", next_action="まずこれをやる")
+    assert task.next_action == "まずこれをやる"
+
+
 def test_list_tasks_by_status(db: TaskDB):
-    db.add_task("タスク1")
-    t2 = db.add_task("タスク2")
+    db.add_task("タスク1", description="タスク1の説明")
+    t2 = db.add_task("タスク2", description="タスク2の説明")
     db.update_status(t2.id, TaskStatus.IN_PROGRESS)
 
     todo_tasks = db.list_tasks(statuses=[TaskStatus.TODO])
@@ -42,30 +57,43 @@ def test_list_tasks_by_status(db: TaskDB):
 
 
 def test_list_tasks_all(db: TaskDB):
-    db.add_task("タスク1")
-    db.add_task("タスク2")
+    db.add_task("タスク1", description="説明1")
+    db.add_task("タスク2", description="説明2")
     all_tasks = db.list_tasks()
     assert len(all_tasks) == 2
 
 
 def test_list_tasks_jira_only(db: TaskDB):
-    db.add_task("ローカル")
-    db.add_task("JIRA付き", jira_key="PROJ-1")
+    db.add_task("ローカル", description="ローカルタスク")
+    db.add_task("JIRA付き", description="JIRA連携タスク", jira_key="PROJ-1")
     jira_tasks = db.list_tasks(jira_only=True)
     assert len(jira_tasks) == 1
     assert jira_tasks[0].jira_key == "PROJ-1"
 
 
 def test_update_status(db: TaskDB):
-    task = db.add_task("タスク")
+    task = db.add_task("タスク", description="説明")
     db.update_status(task.id, TaskStatus.DONE)
     updated = db.get_task(task.id)
     assert updated is not None
     assert updated.status == TaskStatus.DONE
 
 
+def test_update_task(db: TaskDB):
+    task = db.add_task("タスク", description="元の説明")
+    updated = db.update_task(task.id, description="新しい説明", title="新タスク名")
+    assert updated.title == "新タスク名"
+    assert updated.description == "新しい説明"
+
+
+def test_update_task_next_action(db: TaskDB):
+    task = db.add_task("タスク", description="説明")
+    updated = db.update_task(task.id, next_action="次はテスト")
+    assert updated.next_action == "次はテスト"
+
+
 def test_add_and_get_logs(db: TaskDB):
-    task = db.add_task("タスク")
+    task = db.add_task("タスク", description="説明")
     db.add_log(task.id, summary="APIを実装", details="lib/api.py", remaining="テスト")
     db.add_log(task.id, summary="テスト追加")
 
@@ -78,8 +106,8 @@ def test_add_and_get_logs(db: TaskDB):
 
 
 def test_daily_logs(db: TaskDB):
-    t1 = db.add_task("タスク1")
-    t2 = db.add_task("タスク2")
+    t1 = db.add_task("タスク1", description="説明1")
+    t2 = db.add_task("タスク2", description="説明2")
     db.add_log(t1.id, summary="作業1")
     db.add_log(t2.id, summary="作業2")
 
