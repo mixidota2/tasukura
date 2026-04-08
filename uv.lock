@@ -141,6 +141,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "python-ulid" },
+    { name = "rich" },
     { name = "typer" },
     { name = "typing-extensions" },
 ]
@@ -153,6 +154,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "python-ulid", specifier = ">=3.0.0" },
+    { name = "rich", specifier = ">=14.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
 ]

@@ -123,3 +123,48 @@ def test_get_task_not_found(db: TaskDB):
 def test_update_status_not_found(db: TaskDB):
     with pytest.raises(ValueError, match="not found"):
         db.update_status("nonexistent", TaskStatus.DONE)
+
+
+def test_add_task_auto_position(db: TaskDB):
+    """タスク追加時にpositionが自動採番される."""
+    t1 = db.add_task("タスク1", description="説明1")
+    t2 = db.add_task("タスク2", description="説明2")
+    t3 = db.add_task("タスク3", description="説明3")
+    assert t1.position < t2.position < t3.position
+
+
+def test_list_tasks_ordered_by_position(db: TaskDB):
+    """list_tasksはposition順で返す."""
+    db.add_task("タスク1", description="説明1")
+    db.add_task("タスク2", description="説明2")
+    db.add_task("タスク3", description="説明3")
+    tasks = db.list_tasks()
+    assert [t.title for t in tasks] == ["タスク1", "タスク2", "タスク3"]
+
+
+def test_rank_task_to_top(db: TaskDB):
+    """rank_taskで最上位に移動できる."""
+    t1 = db.add_task("タスク1", description="説明1")
+    db.add_task("タスク2", description="説明2")
+    t3 = db.add_task("タスク3", description="説明3")
+    db.rank_task(t3.id)  # タスク3を最上位に
+    tasks = db.list_tasks()
+    assert [t.title for t in tasks] == ["タスク3", "タスク1", "タスク2"]
+
+
+def test_rank_task_after(db: TaskDB):
+    """rank_taskで指定タスクの後ろに配置できる."""
+    t1 = db.add_task("タスク1", description="説明1")
+    db.add_task("タスク2", description="説明2")
+    t3 = db.add_task("タスク3", description="説明3")
+    db.rank_task(t3.id, after_id=t1.id)  # タスク3をタスク1の後ろに
+    tasks = db.list_tasks()
+    assert [t.title for t in tasks] == ["タスク1", "タスク3", "タスク2"]
+
+
+def test_add_task_with_position(db: TaskDB):
+    """position指定でタスクを追加できる."""
+    db.add_task("タスク1", description="説明1")
+    db.add_task("タスク先頭", description="説明", position=-1)
+    tasks = db.list_tasks()
+    assert tasks[0].title == "タスク先頭"

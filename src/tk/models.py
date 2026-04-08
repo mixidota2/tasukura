@@ -1,7 +1,5 @@
 """タスクと進捗ログのデータモデル."""
 
-from __future__ import annotations
-
 import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,6 +27,7 @@ class Task:
     jira_key: str | None
     parent_id: str | None
     next_action: str | None
+    position: int
     created_at: str
     updated_at: str
 
@@ -40,7 +39,8 @@ class Task:
         jira_key: str | None = None,
         parent_id: str | None = None,
         next_action: str | None = None,
-    ) -> Task:
+        position: int = 0,
+    ) -> "Task":
         """新しいタスクを作成する."""
         now = datetime.now(timezone.utc).isoformat()
         return cls(
@@ -51,6 +51,7 @@ class Task:
             jira_key=jira_key,
             parent_id=parent_id,
             next_action=next_action,
+            position=position,
             created_at=now,
             updated_at=now,
         )
@@ -74,7 +75,7 @@ class ProgressLog:
         summary: str,
         details: str | None = None,
         remaining: str | None = None,
-    ) -> ProgressLog:
+    ) -> "ProgressLog":
         """新しい進捗ログを作成する."""
         return cls(
             id=str(ULID()),

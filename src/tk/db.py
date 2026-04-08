@@ -1,16 +1,12 @@
 """SQLiteによるタスクとログの永続化."""
 
-from __future__ import annotations
-
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from tk.models import ProgressLog, Task, TaskStatus
 
-DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "tk" / "tasks.db"
-
-_TASK_COLUMNS = "id, title, description, status, jira_key, parent_id, next_action, created_at, updated_at"
+_TASK_COLUMNS = "id, title, description, status, jira_key, parent_id, next_action, position, created_at, updated_at"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -21,6 +17,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     jira_key    TEXT,
     parent_id   TEXT REFERENCES tasks(id),
     next_action TEXT,
+    position    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -39,14 +36,15 @@ _MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id)",
     "ALTER TABLE tasks ADD COLUMN next_action TEXT",
+    "ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
 ]
 
 
 class TaskDB:
     """タスクDBの操作を提供する."""
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
-        path = Path(db_path) if db_path else DEFAULT_DB_PATH
+    def __init__(self, db_path: str | Path) -> None:
+        path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(path))
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -73,9 +71,19 @@ class TaskDB:
         """DBの行をTaskに変換する。カラム順は _TASK_COLUMNS に従う."""
         return Task(
             id=r[0], title=r[1], description=r[2], status=TaskStatus(r[3]),
-            jira_key=r[4], parent_id=r[5], next_action=r[6],
-            created_at=r[7], updated_at=r[8],
+            jira_key=r[4], parent_id=r[5], next_action=r[6], position=r[7],
+            created_at=r[8], updated_at=r[9],
         )
+
+    def _next_position(self) -> int:
+        """次のposition値を返す（末尾追加用）."""
+        row = self._conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM tasks").fetchone()
+        return row[0]
+
+    def _min_position(self) -> int:
+        """最小のposition値を返す（先頭追加用）."""
+        row = self._conn.execute("SELECT COALESCE(MIN(position), 1) - 1 FROM tasks").fetchone()
+        return row[0]
 
     def add_task(
         self,
@@ -84,12 +92,19 @@ class TaskDB:
         jira_key: str | None = None,
         parent_id: str | None = None,
         next_action: str | None = None,
+        position: int | None = None,
     ) -> Task:
-        """タスクを追加する."""
-        task = Task.new(title=title, description=description, jira_key=jira_key, parent_id=parent_id, next_action=next_action)
+        """タスクを追加する.
+
+        Args:
+            position: 指定しない場合は末尾に追加。
+        """
+        if position is None:
+            position = self._next_position()
+        task = Task.new(title=title, description=description, jira_key=jira_key, parent_id=parent_id, next_action=next_action, position=position)
         self._conn.execute(
-            f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task.id, task.title, task.description, task.status.value, task.jira_key, task.parent_id, task.next_action, task.created_at, task.updated_at),
+            f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task.id, task.title, task.description, task.status.value, task.jira_key, task.parent_id, task.next_action, task.position, task.created_at, task.updated_at),
         )
         self._conn.commit()
         return task
@@ -105,8 +120,16 @@ class TaskDB:
         self,
         statuses: list[TaskStatus] | None = None,
         jira_only: bool = False,
+        done_since: str | None = None,
     ) -> list[Task]:
-        """タスク一覧を取得する."""
+        """タスク一覧を取得する.
+
+        Args:
+            statuses: フィルタするステータス。
+            jira_only: JIRA連携タスクのみ。
+            done_since: done タスクをこの日時以降に更新されたものに限定する（ISO8601形式）。
+                        None の場合は done タスクもすべて返す。
+        """
         query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE 1=1"
         params: list[str] = []
 
@@ -115,10 +138,14 @@ class TaskDB:
             query += f" AND status IN ({placeholders})"
             params.extend(s.value for s in statuses)
 
+        if done_since:
+            query += " AND (status != 'done' OR updated_at >= ?)"
+            params.append(done_since)
+
         if jira_only:
             query += " AND jira_key IS NOT NULL"
 
-        query += " ORDER BY created_at DESC"
+        query += " ORDER BY position ASC"
         rows = self._conn.execute(query, params).fetchall()
         return [self._row_to_task(r) for r in rows]
 
@@ -156,6 +183,43 @@ class TaskDB:
         params.append(now)
         params.append(task_id)
         self._conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
+        self._conn.commit()
+        updated = self.get_task(task_id)
+        assert updated is not None
+        return updated
+
+    def rank_task(self, task_id: str, after_id: str | None = None) -> Task:
+        """タスクの表示順序を変更する.
+
+        Args:
+            task_id: 移動するタスクのID。
+            after_id: このタスクの後ろに配置。Noneの場合は最上位に移動。
+        """
+        task = self.get_task(task_id)
+        if task is None:
+            msg = f"Task {task_id} not found"
+            raise ValueError(msg)
+
+        if after_id is None:
+            # 最上位に移動
+            new_position = self._min_position()
+        else:
+            after_task = self.get_task(after_id)
+            if after_task is None:
+                msg = f"Task {after_id} not found"
+                raise ValueError(msg)
+            # after_taskの直後に挿入: after_taskより大きいpositionを全て+1してスペースを作る
+            self._conn.execute(
+                "UPDATE tasks SET position = position + 1 WHERE position > ?",
+                (after_task.position,),
+            )
+            new_position = after_task.position + 1
+
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE tasks SET position = ?, updated_at = ? WHERE id = ?",
+            (new_position, now, task_id),
+        )
         self._conn.commit()
         updated = self.get_task(task_id)
         assert updated is not None

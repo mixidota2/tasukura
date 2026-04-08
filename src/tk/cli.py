@@ -1,22 +1,37 @@
 """tk - ローカルタスク管理CLI."""
 
-from __future__ import annotations
-
-import os
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import typer
 
+from tk.config import TkConfig
 from tk.db import TaskDB
 from tk.models import Task, TaskStatus
 
 app = typer.Typer(help="tk - ローカルタスク管理CLI")
 
+_config: TkConfig | None = None
+
+
+def _get_config() -> TkConfig:
+    """設定を取得する（シングルトン）."""
+    global _config  # noqa: PLW0603
+    if _config is None:
+        _config = TkConfig.load()
+    return _config
+
 
 def _get_db() -> TaskDB:
-    """DB接続を取得する。TK_DB_PATH環境変数でパスを上書き可能."""
-    db_path = os.environ.get("TK_DB_PATH")
-    return TaskDB(db_path)
+    """DB接続を取得する."""
+    return TaskDB(_get_config().db_path)
+
+
+def _done_since_cutoff() -> str:
+    """done タスクの表示期限（ISO8601）を返す."""
+    config = _get_config()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=config.done_retention_days)
+    return cutoff.isoformat()
 
 
 def _short_id(task_id: str) -> str:
@@ -35,11 +50,27 @@ def add(
     jira: Annotated[Optional[str], typer.Option(help="JIRAチケットキー (例: PROJ-123)")] = None,
     parent: Annotated[Optional[str], typer.Option(help="親タスクID")] = None,
     next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと")] = None,
+    top: Annotated[bool, typer.Option("--top", help="最上位に追加")] = False,
+    after: Annotated[Optional[str], typer.Option(help="指定タスクの後ろに追加")] = None,
 ) -> None:
     """タスクを追加する."""
     db = _get_db()
     parent_id = _resolve_id(db, parent) if parent else None
-    task = db.add_task(title, description=description, jira_key=jira, parent_id=parent_id, next_action=next_action)
+    position: int | None = None
+    if top:
+        position = db._min_position()
+    elif after:
+        after_id = _resolve_id(db, after)
+        after_task = db.get_task(after_id)
+        assert after_task is not None
+        # after_taskの直後に挿入
+        db._conn.execute(
+            "UPDATE tasks SET position = position + 1 WHERE position > ?",
+            (after_task.position,),
+        )
+        db._conn.commit()
+        position = after_task.position + 1
+    task = db.add_task(title, description=description, jira_key=jira, parent_id=parent_id, next_action=next_action, position=position)
     db.close()
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -58,11 +89,13 @@ def list_tasks(
     status: Annotated[Optional[str], typer.Option(help="カンマ区切りのステータス (例: todo,in_progress)")] = None,
     jira_only: Annotated[bool, typer.Option("--jira-only", help="JIRA連携タスクのみ")] = False,
     flat: Annotated[bool, typer.Option("--flat", help="フラット表示（ツリーなし）")] = False,
+    all_tasks: Annotated[bool, typer.Option("--all", help="完了済みタスクもすべて表示")] = False,
 ) -> None:
     """タスク一覧を表示する。デフォルトはツリー表示."""
     db = _get_db()
     statuses = [TaskStatus(s.strip()) for s in status.split(",")] if status else None
-    tasks = db.list_tasks(statuses=statuses, jira_only=jira_only)
+    done_since = None if all_tasks else _done_since_cutoff()
+    tasks = db.list_tasks(statuses=statuses, jira_only=jira_only, done_since=done_since)
     db.close()
     if not tasks:
         typer.echo("タスクなし")
@@ -122,6 +155,23 @@ def update(
         typer.echo(f"  description: {task.description}")
     if next_action is not None:
         typer.echo(f"  next: {task.next_action}")
+
+
+@app.command()
+def rank(
+    task_id: str,
+    after: Annotated[Optional[str], typer.Option(help="指定タスクの後ろに配置")] = None,
+) -> None:
+    """タスクの表示順序を変更する。引数なしで最上位に移動."""
+    db = _get_db()
+    resolved_id = _resolve_id(db, task_id)
+    after_id = _resolve_id(db, after) if after else None
+    task = db.rank_task(resolved_id, after_id=after_id)
+    db.close()
+    if after_id:
+        typer.echo(f"Ranked: {_short_id(task.id)} after {_short_id(after_id)}  {task.title}")
+    else:
+        typer.echo(f"Ranked: {_short_id(task.id)} → top  {task.title}")
 
 
 @app.command()
@@ -260,6 +310,103 @@ def jira_report(
         last_remaining = items[-1][1].remaining
         if last_remaining:
             typer.echo(f"  残タスク: {last_remaining}")
+
+
+@app.command()
+def board(
+    status_filter: Annotated[Optional[str], typer.Option("--status", help="カンマ区切りのステータス")] = None,
+    all_tasks: Annotated[bool, typer.Option("--all", help="完了済みタスクもすべて表示")] = False,
+) -> None:
+    """カンバンボード風にタスクを表示する."""
+    from rich.console import Console
+    from rich.text import Text
+
+    db = _get_db()
+    statuses = [TaskStatus(s.strip()) for s in status_filter.split(",")] if status_filter else None
+    done_since = None if all_tasks else _done_since_cutoff()
+    tasks = db.list_tasks(statuses=statuses, done_since=done_since)
+    db.close()
+
+    # ステータスごとにグループ化（position順は list_tasks が保証）
+    display_statuses = [s for s in TaskStatus if statuses is None or s in statuses]
+    by_status: dict[TaskStatus, list[Task]] = {s: [] for s in display_statuses}
+    for t in tasks:
+        if t.status in by_status:
+            by_status[t.status].append(t)
+
+    # ステータスの色設定
+    status_style: dict[TaskStatus, tuple[str, str]] = {
+        TaskStatus.TODO: ("TODO", "bright_white"),
+        TaskStatus.IN_PROGRESS: ("IN PROGRESS", "yellow"),
+        TaskStatus.IN_REVIEW: ("IN REVIEW", "cyan"),
+        TaskStatus.DONE: ("DONE", "green"),
+    }
+
+    console = Console()
+
+    if not tasks:
+        console.print("[dim]タスクなし[/]")
+        return
+
+    def _render_task_card(t: Task, color: str) -> Text:
+        """タスク1件をカード風のTextに整形する."""
+        card = Text()
+        card.append(f" {t.title}\n", style=f"bold {color}")
+        card.append(f" {_short_id(t.id)}", style="dim")
+        if t.jira_key:
+            card.append(f" {t.jira_key}", style="blue")
+        card.append("\n")
+        if t.next_action:
+            card.append(f" → {t.next_action}\n", style="dim italic")
+        return card
+
+    # 各ステータスの列を構築（テーブルで横並びを強制）
+    from rich.table import Table
+
+    table = Table(
+        show_header=False,
+        show_edge=False,
+        show_lines=False,
+        expand=True,
+        padding=(0, 1),
+        pad_edge=False,
+    )
+    for s in display_statuses:
+        _, color = status_style[s]
+        table.add_column(ratio=1, style=color, overflow="fold")
+
+    # ヘッダー行
+    header_row: list[Text] = []
+    for s in display_statuses:
+        label, color = status_style[s]
+        count = len(by_status[s])
+        h = Text()
+        h.append(f" {label}", style=f"bold {color}")
+        h.append(f" ({count})", style="dim")
+        header_row.append(h)
+    table.add_row(*header_row)
+
+    # 区切り線
+    sep_row: list[Text] = []
+    for s in display_statuses:
+        _, color = status_style[s]
+        sep_row.append(Text(" ─" * 8, style=f"dim {color}"))
+    table.add_row(*sep_row)
+
+    # タスク行
+    max_rows = max((len(v) for v in by_status.values()), default=0)
+    for i in range(max_rows):
+        row: list[Text | str] = []
+        for s in display_statuses:
+            col_tasks = by_status[s]
+            if i < len(col_tasks):
+                _, color = status_style[s]
+                row.append(_render_task_card(col_tasks[i], color))
+            else:
+                row.append("")
+        table.add_row(*row)
+
+    console.print(table)
 
 
 def _resolve_id(db: TaskDB, partial_id: str) -> str:

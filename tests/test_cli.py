@@ -4,6 +4,7 @@ import tempfile
 import pytest
 from typer.testing import CliRunner
 
+import tk.cli as cli_module
 from tk.cli import app
 
 runner = CliRunner()
@@ -15,7 +16,10 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch):
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     monkeypatch.setenv("TK_DB_PATH", path)
+    # 設定キャッシュをリセットして環境変数を反映させる
+    cli_module._config = None
     yield path
+    cli_module._config = None
     os.unlink(path)
 
 
@@ -165,6 +169,70 @@ def test_jira_report():
     assert result.exit_code == 0
     assert "PROJ-1" in result.stdout
     assert "実装完了" in result.stdout
+
+
+def test_rank_to_top():
+    runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
+    runner.invoke(app, ["add", "タスク2", "--description", "説明2"])
+    result3 = runner.invoke(app, ["add", "タスク3", "--description", "説明3"])
+    task3_id = _extract_id(result3.stdout)
+    result = runner.invoke(app, ["rank", task3_id])
+    assert result.exit_code == 0
+    assert "→ top" in result.stdout
+    # listで先頭に来ていることを確認
+    result = runner.invoke(app, ["list", "--flat"])
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    assert "タスク3" in lines[0]
+
+
+def test_rank_after():
+    result1 = runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
+    task1_id = _extract_id(result1.stdout)
+    runner.invoke(app, ["add", "タスク2", "--description", "説明2"])
+    result3 = runner.invoke(app, ["add", "タスク3", "--description", "説明3"])
+    task3_id = _extract_id(result3.stdout)
+    result = runner.invoke(app, ["rank", task3_id, "--after", task1_id])
+    assert result.exit_code == 0
+    assert "after" in result.stdout
+    # listでタスク1の次にタスク3が来ていることを確認
+    result = runner.invoke(app, ["list", "--flat"])
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    titles = [l.split("  ")[-1].strip() for l in lines]
+    # タスク1, タスク3, タスク2の順
+    idx1 = next(i for i, t in enumerate(titles) if "タスク1" in t)
+    idx3 = next(i for i, t in enumerate(titles) if "タスク3" in t)
+    idx2 = next(i for i, t in enumerate(titles) if "タスク2" in t)
+    assert idx1 < idx3 < idx2
+
+
+def test_add_with_top():
+    runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
+    runner.invoke(app, ["add", "先頭タスク", "--description", "説明", "--top"])
+    result = runner.invoke(app, ["list", "--flat"])
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    assert "先頭タスク" in lines[0]
+
+
+def test_add_with_after():
+    result1 = runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
+    task1_id = _extract_id(result1.stdout)
+    runner.invoke(app, ["add", "タスク2", "--description", "説明2"])
+    runner.invoke(app, ["add", "挿入タスク", "--description", "説明", "--after", task1_id])
+    result = runner.invoke(app, ["list", "--flat"])
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    # タスク1, 挿入タスク, タスク2の順
+    idx1 = next(i for i, l in enumerate(lines) if "タスク1" in l)
+    idx_ins = next(i for i, l in enumerate(lines) if "挿入タスク" in l)
+    idx2 = next(i for i, l in enumerate(lines) if "タスク2" in l)
+    assert idx1 < idx_ins < idx2
+
+
+def test_board():
+    runner.invoke(app, ["add", "タスクA", "--description", "説明A"])
+    result = runner.invoke(app, ["board"])
+    assert result.exit_code == 0
+    assert "TODO" in result.stdout
+    assert "タスクA" in result.stdout
 
 
 def _extract_id(output: str) -> str:
