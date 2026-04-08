@@ -58,18 +58,10 @@ def add(
     parent_id = _resolve_id(db, parent) if parent else None
     position: int | None = None
     if top:
-        position = db._min_position()
+        position = db.get_top_position()
     elif after:
         after_id = _resolve_id(db, after)
-        after_task = db.get_task(after_id)
-        assert after_task is not None
-        # after_taskの直後に挿入
-        db._conn.execute(
-            "UPDATE tasks SET position = position + 1 WHERE position > ?",
-            (after_task.position,),
-        )
-        db._conn.commit()
-        position = after_task.position + 1
+        position = db.get_position_after(after_id)
     task = db.add_task(title, description=description, jira_key=jira, parent_id=parent_id, next_action=next_action, position=position)
     db.close()
     typer.echo(f"ID: {task.id}")

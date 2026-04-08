@@ -85,6 +85,26 @@ class TaskDB:
         row = self._conn.execute("SELECT COALESCE(MIN(position), 1) - 1 FROM tasks").fetchone()
         return row[0]
 
+    def get_top_position(self) -> int:
+        """先頭追加用の position を返す."""
+        return self._min_position()
+
+    def get_position_after(self, task_id: str) -> int:
+        """指定タスクの直後に挿入するための position を返す.
+
+        後続タスクの position を +1 シフトしてスペースを作り、新しい position を返す。
+        """
+        task = self.get_task(task_id)
+        if task is None:
+            msg = f"Task {task_id} not found"
+            raise ValueError(msg)
+        self._conn.execute(
+            "UPDATE tasks SET position = position + 1 WHERE position > ?",
+            (task.position,),
+        )
+        self._conn.commit()
+        return task.position + 1
+
     def add_task(
         self,
         title: str,
@@ -185,7 +205,9 @@ class TaskDB:
         self._conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
         self._conn.commit()
         updated = self.get_task(task_id)
-        assert updated is not None
+        if updated is None:
+            msg = f"Task {task_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
         return updated
 
     def rank_task(self, task_id: str, after_id: str | None = None) -> Task:
@@ -222,7 +244,9 @@ class TaskDB:
         )
         self._conn.commit()
         updated = self.get_task(task_id)
-        assert updated is not None
+        if updated is None:
+            msg = f"Task {task_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
         return updated
 
     def update_status(self, task_id: str, status: TaskStatus) -> Task:
