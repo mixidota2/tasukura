@@ -1,4 +1,4 @@
-"""タスクと進捗ログのデータモデル."""
+"""Data models for tasks and progress logs."""
 
 import enum
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ from ulid import ULID
 
 
 class TaskStatus(str, enum.Enum):
-    """タスクのステータス."""
+    """Task status."""
 
     TODO = "todo"
     IN_PROGRESS = "in_progress"
@@ -18,13 +18,14 @@ class TaskStatus(str, enum.Enum):
 
 @dataclass(frozen=True)
 class Task:
-    """タスク."""
+    """A task."""
 
     id: str
     title: str
     description: str
     status: TaskStatus
-    jira_key: str | None
+    source_id: str | None
+    source: str | None
     parent_id: str | None
     next_action: str | None
     position: int
@@ -36,19 +37,21 @@ class Task:
         cls,
         title: str,
         description: str,
-        jira_key: str | None = None,
+        source_id: str | None = None,
+        source: str | None = None,
         parent_id: str | None = None,
         next_action: str | None = None,
         position: int = 0,
     ) -> "Task":
-        """新しいタスクを作成する."""
+        """Create a new task."""
         now = datetime.now(timezone.utc).isoformat()
         return cls(
             id=str(ULID()),
             title=title,
             description=description,
             status=TaskStatus.TODO,
-            jira_key=jira_key,
+            source_id=source_id,
+            source=source,
             parent_id=parent_id,
             next_action=next_action,
             position=position,
@@ -59,7 +62,7 @@ class Task:
 
 @dataclass(frozen=True)
 class ProgressLog:
-    """進捗ログ."""
+    """A progress log entry."""
 
     id: str
     task_id: str
@@ -76,7 +79,7 @@ class ProgressLog:
         details: str | None = None,
         remaining: str | None = None,
     ) -> "ProgressLog":
-        """新しい進捗ログを作成する."""
+        """Create a new progress log entry."""
         return cls(
             id=str(ULID()),
             task_id=task_id,

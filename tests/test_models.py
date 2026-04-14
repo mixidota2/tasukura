@@ -3,12 +3,16 @@ from tasukura.models import Task, ProgressLog, TaskStatus
 
 def test_task_creation():
     task = Task.new(
-        title="テスト実装", description="テストの実装を行う", jira_key="PROJ-123"
+        title="テスト実装",
+        description="テストの実装を行う",
+        source_id="PROJ-123",
+        source="jira",
     )
     assert task.title == "テスト実装"
     assert task.description == "テストの実装を行う"
     assert task.status == TaskStatus.TODO
-    assert task.jira_key == "PROJ-123"
+    assert task.source_id == "PROJ-123"
+    assert task.source == "jira"
     assert task.parent_id is None
     assert task.next_action is None
     assert task.id  # ULIDが生成されている
@@ -25,9 +29,10 @@ def test_task_creation_with_parent_and_next_action():
     assert task.next_action == "まずこれをやる"
 
 
-def test_task_creation_without_jira():
+def test_task_creation_without_source():
     task = Task.new(title="ローカルタスク", description="ローカルでやるタスク")
-    assert task.jira_key is None
+    assert task.source_id is None
+    assert task.source is None
 
 
 def test_progress_log_creation():

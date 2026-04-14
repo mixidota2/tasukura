@@ -19,12 +19,15 @@ def db():
 
 
 def test_add_and_get_task(db: TaskDB):
-    task = db.add_task("テスト実装", description="テストを書く", jira_key="PROJ-123")
+    task = db.add_task(
+        "テスト実装", description="テストを書く", source_id="PROJ-123", source="jira"
+    )
     fetched = db.get_task(task.id)
     assert fetched is not None
     assert fetched.title == "テスト実装"
     assert fetched.description == "テストを書く"
-    assert fetched.jira_key == "PROJ-123"
+    assert fetched.source_id == "PROJ-123"
+    assert fetched.source == "jira"
     assert fetched.status == TaskStatus.TODO
 
 
@@ -63,12 +66,14 @@ def test_list_tasks_all(db: TaskDB):
     assert len(all_tasks) == 2
 
 
-def test_list_tasks_jira_only(db: TaskDB):
+def test_list_tasks_by_source(db: TaskDB):
     db.add_task("ローカル", description="ローカルタスク")
-    db.add_task("JIRA付き", description="JIRA連携タスク", jira_key="PROJ-1")
-    jira_tasks = db.list_tasks(jira_only=True)
-    assert len(jira_tasks) == 1
-    assert jira_tasks[0].jira_key == "PROJ-1"
+    db.add_task(
+        "外部連携", description="外部連携タスク", source_id="PROJ-1", source="jira"
+    )
+    source_tasks = db.list_tasks(source="jira")
+    assert len(source_tasks) == 1
+    assert source_tasks[0].source_id == "PROJ-1"
 
 
 def test_update_status(db: TaskDB):
@@ -103,17 +108,6 @@ def test_add_and_get_logs(db: TaskDB):
     assert logs[0].details == "lib/api.py"
     assert logs[0].remaining == "テスト"
     assert logs[1].summary == "テスト追加"
-
-
-def test_daily_logs(db: TaskDB):
-    t1 = db.add_task("タスク1", description="説明1")
-    t2 = db.add_task("タスク2", description="説明2")
-    db.add_log(t1.id, summary="作業1")
-    db.add_log(t2.id, summary="作業2")
-
-    # 今日の日付で取得（テスト実行日）
-    daily = db.get_daily_logs()
-    assert len(daily) == 2
 
 
 def test_get_task_not_found(db: TaskDB):

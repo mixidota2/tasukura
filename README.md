@@ -1,91 +1,93 @@
 # tasukura
 
-ローカル SQLite ベースのタスク管理 CLI。タスクと進捗をローカルに記録し、JIRA 連携レポートを生成する。
+A local task management CLI designed for AI coding agents. Track tasks and progress in SQLite — lightweight, portable, and agent-friendly.
 
-## インストール
+## Features
+
+- **Task lifecycle** — status transitions: todo / in_progress / in_review / done
+- **Progress logging** — structured fields: summary, details, remaining, next action
+- **External source linking** — link tasks to JIRA, GitHub Issues, Linear, or any external system
+- **SQLite storage** — single-file database, zero infrastructure
+
+## Installation
 
 ```bash
-# uv (推奨)
+# uv (recommended)
 uv tool install tasukura
 
 # pip
 pip install tasukura
 
-# GitHub から直接
+# From source
 uv tool install git+https://github.com/mixidota2/tasukura
 ```
 
-CLI コマンドは `tk` として登録される。
+The CLI is registered as `tk`.
 
-## 使い方
+## Quick Start
 
 ```bash
-# タスク追加
-tk add "API実装" --description "REST APIのエンドポイントを実装する"
+# Add a task
+tk add "Implement API" --description "Build REST API endpoints for /tasks"
 
-# 一覧表示
+# List tasks
 tk list
 
-# ステータス変更
+# Change status
 tk status <id> in_progress
 
-# 進捗記録
-tk log <id> --summary "エンドポイント実装完了" --details "GET /api/tasks を追加"
+# Log progress
+tk log <id> --summary "Endpoints done" --details "Added GET/POST /api/tasks"
 
-# カンバンボード表示
-tk board
+# Link to an external source
+tk add "Fix login bug" --description "..." --source-id PROJ-123 --source jira
 
-# 日次レポート
-tk daily
-
-# JIRA連携レポート
-tk jira-report
+# Filter by source
+tk list --source jira
 ```
 
-## コマンド一覧
+## Commands
 
-| コマンド | 説明 |
-|---------|------|
-| `tk add` | タスク追加 |
-| `tk list` | タスク一覧（ツリー表示） |
-| `tk update` | タスクのフィールド更新 |
-| `tk status` | ステータス変更 (todo/in_progress/in_review/done) |
-| `tk log` | 進捗ログ記録 |
-| `tk rank` | 表示順序の変更 |
-| `tk board` | カンバンボード表示 |
-| `tk show` | タスク詳細表示 |
-| `tk daily` | 日次進捗まとめ |
-| `tk jira-report` | JIRA 向けレポート |
+| Command | Description |
+|---------|-------------|
+| `tk add` | Add a new task |
+| `tk list` | List tasks (tree view by default) |
+| `tk update` | Update task fields |
+| `tk status` | Change task status (todo/in_progress/in_review/done) |
+| `tk log` | Record a progress log entry |
+| `tk rank` | Change display order |
+| `tk board` | Kanban board view |
+| `tk show` | Show task details and progress logs |
 
-ID は先頭数文字の入力で一意に特定できれば省略可能。
+Task IDs can be shortened — type just enough characters to uniquely identify a task.
 
-## 設定
+## Configuration
 
-設定ファイル: `~/.config/tk/config.toml`
+Config file: `~/.config/tk/config.toml`
 
 ```toml
-# データベースの保存先（デフォルト: ~/.local/share/tk/tasks.db）
+# Database path (default: ~/.local/share/tk/tasks.db)
 db_path = "~/custom/path/tasks.db"
 
 [board]
-# 完了タスクの表示期間（デフォルト: 14日）
+# Retention days for done tasks (default: 14)
 done_retention_days = 14
 ```
 
-環境変数 `TK_DB_PATH` でデータベースパスを上書きできる。
+The environment variable `TK_DB_PATH` overrides the database path.
 
-## Claude Code スキル
+## Claude Code Skill
 
-`skill/` ディレクトリに Claude Code 用のスキルファイルが含まれている。
+The `skills/` directory contains a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill file for AI agent integration.
 
 ```bash
-# スキルをインストール（シンボリックリンク推奨）
-ln -s /path/to/tasukura/skill ~/.claude/skills/tk
+# Install the skill (symlink recommended)
+ln -s /path/to/tasukura/skills ~/.claude/skills/tk
 ```
 
-詳細は [skill/skill.md](skill/skill.md) を参照。
+See [skills/SKILL.md](skills/SKILL.md) for details.
 
-## 開発
+## Development
 
 ```bash
 git clone https://github.com/mixidota2/tasukura
@@ -94,6 +96,6 @@ uv sync
 uv run pytest
 ```
 
-## ライセンス
+## License
 
 MIT

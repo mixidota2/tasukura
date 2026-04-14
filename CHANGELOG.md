@@ -2,13 +2,12 @@
 
 ## 0.1.0 (2026-04-14)
 
-初回リリース。
+Initial release.
 
-- タスクの追加・一覧・更新・ステータス管理
-- 進捗ログの記録と表示
-- カンバンボード表示
-- 親子タスク（階層構造）
-- 表示順序のカスタマイズ（rank）
-- JIRA チケットキーの紐付けとレポート生成
-- 日次進捗レポート
-- TOML + 環境変数による設定
+- Task CRUD with status management (todo/in_progress/in_review/done)
+- Progress logging with summary, details, and remaining work
+- Kanban board terminal display
+- Hierarchical tasks (parent/child)
+- Custom display ordering (rank)
+- External source linking (source_id + source)
+- TOML + environment variable configuration

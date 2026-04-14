@@ -32,16 +32,18 @@ def test_add_task():
     assert "テストの実装を行う" in result.stdout
 
 
-def test_add_task_with_jira():
+def test_add_task_with_source():
     result = runner.invoke(
         app,
         [
             "add",
-            "JIRA連携",
+            "外部連携",
             "--description",
-            "JIRA連携タスクの説明",
-            "--jira",
+            "外部連携タスクの説明",
+            "--source-id",
             "PROJ-123",
+            "--source",
+            "jira",
         ],
     )
     assert result.exit_code == 0
@@ -197,27 +199,6 @@ def test_show_task_with_children():
     assert result.exit_code == 0
     assert "Children:" in result.stdout
     assert "子タスク" in result.stdout
-
-
-def test_daily():
-    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
-    task_id = _extract_id(result.stdout)
-    runner.invoke(app, ["log", task_id, "--summary", "今日の作業"])
-    result = runner.invoke(app, ["daily"])
-    assert result.exit_code == 0
-    assert "今日の作業" in result.stdout
-
-
-def test_jira_report():
-    result = runner.invoke(
-        app, ["add", "JIRA付き", "--description", "説明", "--jira", "PROJ-1"]
-    )
-    task_id = _extract_id(result.stdout)
-    runner.invoke(app, ["log", task_id, "--summary", "実装完了"])
-    result = runner.invoke(app, ["jira-report"])
-    assert result.exit_code == 0
-    assert "PROJ-1" in result.stdout
-    assert "実装完了" in result.stdout
 
 
 def test_rank_to_top():
