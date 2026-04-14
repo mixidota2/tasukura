@@ -3,8 +3,8 @@ import tempfile
 
 import pytest
 
-from tk.db import TaskDB
-from tk.models import TaskStatus
+from tasukura.db import TaskDB
+from tasukura.models import TaskStatus
 
 
 @pytest.fixture

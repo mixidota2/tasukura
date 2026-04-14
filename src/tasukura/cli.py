@@ -5,9 +5,9 @@ from typing import Annotated, Optional
 
 import typer
 
-from tk.config import TkConfig
-from tk.db import TaskDB
-from tk.models import Task, TaskStatus
+from tasukura.config import TkConfig
+from tasukura.db import TaskDB
+from tasukura.models import Task, TaskStatus
 
 app = typer.Typer(help="tk - ローカルタスク管理CLI")
 

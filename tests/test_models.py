@@ -1,4 +1,4 @@
-from tk.models import Task, ProgressLog, TaskStatus
+from tasukura.models import Task, ProgressLog, TaskStatus
 
 
 def test_task_creation():

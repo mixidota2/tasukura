@@ -4,8 +4,8 @@ import tempfile
 import pytest
 from typer.testing import CliRunner
 
-import tk.cli as cli_module
-from tk.cli import app
+import tasukura.cli as cli_module
+from tasukura.cli import app
 
 runner = CliRunner()
 

@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tk.models import ProgressLog, Task, TaskStatus
+from tasukura.models import ProgressLog, Task, TaskStatus
 
 _TASK_COLUMNS = "id, title, description, status, jira_key, parent_id, next_action, position, created_at, updated_at"
 
