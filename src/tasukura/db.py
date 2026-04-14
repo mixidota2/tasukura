@@ -70,19 +70,30 @@ class TaskDB:
     def _row_to_task(r: tuple) -> Task:
         """DBの行をTaskに変換する。カラム順は _TASK_COLUMNS に従う."""
         return Task(
-            id=r[0], title=r[1], description=r[2], status=TaskStatus(r[3]),
-            jira_key=r[4], parent_id=r[5], next_action=r[6], position=r[7],
-            created_at=r[8], updated_at=r[9],
+            id=r[0],
+            title=r[1],
+            description=r[2],
+            status=TaskStatus(r[3]),
+            jira_key=r[4],
+            parent_id=r[5],
+            next_action=r[6],
+            position=r[7],
+            created_at=r[8],
+            updated_at=r[9],
         )
 
     def _next_position(self) -> int:
         """次のposition値を返す（末尾追加用）."""
-        row = self._conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM tasks").fetchone()
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM tasks"
+        ).fetchone()
         return row[0]
 
     def _min_position(self) -> int:
         """最小のposition値を返す（先頭追加用）."""
-        row = self._conn.execute("SELECT COALESCE(MIN(position), 1) - 1 FROM tasks").fetchone()
+        row = self._conn.execute(
+            "SELECT COALESCE(MIN(position), 1) - 1 FROM tasks"
+        ).fetchone()
         return row[0]
 
     def get_top_position(self) -> int:
@@ -121,17 +132,37 @@ class TaskDB:
         """
         if position is None:
             position = self._next_position()
-        task = Task.new(title=title, description=description, jira_key=jira_key, parent_id=parent_id, next_action=next_action, position=position)
+        task = Task.new(
+            title=title,
+            description=description,
+            jira_key=jira_key,
+            parent_id=parent_id,
+            next_action=next_action,
+            position=position,
+        )
         self._conn.execute(
             f"INSERT INTO tasks ({_TASK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task.id, task.title, task.description, task.status.value, task.jira_key, task.parent_id, task.next_action, task.position, task.created_at, task.updated_at),
+            (
+                task.id,
+                task.title,
+                task.description,
+                task.status.value,
+                task.jira_key,
+                task.parent_id,
+                task.next_action,
+                task.position,
+                task.created_at,
+                task.updated_at,
+            ),
         )
         self._conn.commit()
         return task
 
     def get_task(self, task_id: str) -> Task | None:
         """タスクをIDで取得する."""
-        row = self._conn.execute(f"SELECT {_TASK_COLUMNS} FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = self._conn.execute(
+            f"SELECT {_TASK_COLUMNS} FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
         if row is None:
             return None
         return self._row_to_task(row)
@@ -202,7 +233,9 @@ class TaskDB:
         updates.append("updated_at = ?")
         params.append(now)
         params.append(task_id)
-        self._conn.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
+        self._conn.execute(
+            f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params
+        )
         self._conn.commit()
         updated = self.get_task(task_id)
         if updated is None:
@@ -256,10 +289,15 @@ class TaskDB:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
         now = datetime.now(timezone.utc).isoformat()
-        self._conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (status.value, now, task_id))
+        self._conn.execute(
+            "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
+            (status.value, now, task_id),
+        )
         self._conn.commit()
         updated = self.get_task(task_id)
-        assert updated is not None
+        if updated is None:
+            msg = f"Task {task_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
         return updated
 
     def add_log(
@@ -270,10 +308,19 @@ class TaskDB:
         remaining: str | None = None,
     ) -> ProgressLog:
         """進捗ログを追加する."""
-        log = ProgressLog.new(task_id=task_id, summary=summary, details=details, remaining=remaining)
+        log = ProgressLog.new(
+            task_id=task_id, summary=summary, details=details, remaining=remaining
+        )
         self._conn.execute(
             "INSERT INTO progress_logs (id, task_id, summary, details, remaining, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (log.id, log.task_id, log.summary, log.details, log.remaining, log.created_at),
+            (
+                log.id,
+                log.task_id,
+                log.summary,
+                log.details,
+                log.remaining,
+                log.created_at,
+            ),
         )
         self._conn.commit()
         return log
@@ -284,7 +331,17 @@ class TaskDB:
             "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
             (task_id,),
         ).fetchall()
-        return [ProgressLog(id=r[0], task_id=r[1], summary=r[2], details=r[3], remaining=r[4], created_at=r[5]) for r in rows]
+        return [
+            ProgressLog(
+                id=r[0],
+                task_id=r[1],
+                summary=r[2],
+                details=r[3],
+                remaining=r[4],
+                created_at=r[5],
+            )
+            for r in rows
+        ]
 
     def get_daily_logs(self, date: str | None = None) -> list[tuple[Task, ProgressLog]]:
         """指定日の進捗ログをタスクと一緒に取得する.
@@ -311,7 +368,14 @@ class TaskDB:
         return [
             (
                 self._row_to_task(r[:task_col_count]),
-                ProgressLog(id=r[task_col_count], task_id=r[task_col_count + 1], summary=r[task_col_count + 2], details=r[task_col_count + 3], remaining=r[task_col_count + 4], created_at=r[task_col_count + 5]),
+                ProgressLog(
+                    id=r[task_col_count],
+                    task_id=r[task_col_count + 1],
+                    summary=r[task_col_count + 2],
+                    details=r[task_col_count + 3],
+                    remaining=r[task_col_count + 4],
+                    created_at=r[task_col_count + 5],
+                ),
             )
             for r in rows
         ]

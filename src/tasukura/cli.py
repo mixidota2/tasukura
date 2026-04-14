@@ -47,7 +47,9 @@ def _short_id(task_id: str) -> str:
 def add(
     title: str,
     description: Annotated[str, typer.Option(help="タスクのゴール・完了条件・背景")],
-    jira: Annotated[Optional[str], typer.Option(help="JIRAチケットキー (例: PROJ-123)")] = None,
+    jira: Annotated[
+        Optional[str], typer.Option(help="JIRAチケットキー (例: PROJ-123)")
+    ] = None,
     parent: Annotated[Optional[str], typer.Option(help="親タスクID")] = None,
     next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと")] = None,
     top: Annotated[bool, typer.Option("--top", help="最上位に追加")] = False,
@@ -62,7 +64,14 @@ def add(
     elif after:
         after_id = _resolve_id(db, after)
         position = db.get_position_after(after_id)
-    task = db.add_task(title, description=description, jira_key=jira, parent_id=parent_id, next_action=next_action, position=position)
+    task = db.add_task(
+        title,
+        description=description,
+        jira_key=jira,
+        parent_id=parent_id,
+        next_action=next_action,
+        position=position,
+    )
     db.close()
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -78,10 +87,19 @@ def add(
 
 @app.command("list")
 def list_tasks(
-    status: Annotated[Optional[str], typer.Option(help="カンマ区切りのステータス (例: todo,in_progress)")] = None,
-    jira_only: Annotated[bool, typer.Option("--jira-only", help="JIRA連携タスクのみ")] = False,
-    flat: Annotated[bool, typer.Option("--flat", help="フラット表示（ツリーなし）")] = False,
-    all_tasks: Annotated[bool, typer.Option("--all", help="完了済みタスクもすべて表示")] = False,
+    status: Annotated[
+        Optional[str],
+        typer.Option(help="カンマ区切りのステータス (例: todo,in_progress)"),
+    ] = None,
+    jira_only: Annotated[
+        bool, typer.Option("--jira-only", help="JIRA連携タスクのみ")
+    ] = False,
+    flat: Annotated[
+        bool, typer.Option("--flat", help="フラット表示（ツリーなし）")
+    ] = False,
+    all_tasks: Annotated[
+        bool, typer.Option("--all", help="完了済みタスクもすべて表示")
+    ] = False,
 ) -> None:
     """タスク一覧を表示する。デフォルトはツリー表示."""
     db = _get_db()
@@ -103,7 +121,9 @@ def _print_task_line(t: Task, indent: str = "") -> None:
     """タスク1行を表示する."""
     jira = f" [{t.jira_key}]" if t.jira_key else ""
     next_act = f" -> {t.next_action}" if t.next_action else ""
-    typer.echo(f"{indent}{_short_id(t.id)}  {t.status.value:<12} {t.title}{jira}{next_act}")
+    typer.echo(
+        f"{indent}{_short_id(t.id)}  {t.status.value:<12} {t.title}{jira}{next_act}"
+    )
 
 
 def _print_task_tree(tasks: list[Task]) -> None:
@@ -133,14 +153,22 @@ def _print_task_tree(tasks: list[Task]) -> None:
 def update(
     task_id: str,
     title: Annotated[Optional[str], typer.Option(help="タスク名")] = None,
-    description: Annotated[Optional[str], typer.Option(help="タスクのゴール・完了条件・背景")] = None,
+    description: Annotated[
+        Optional[str], typer.Option(help="タスクのゴール・完了条件・背景")
+    ] = None,
     jira: Annotated[Optional[str], typer.Option(help="JIRAチケットキー")] = None,
     next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと")] = None,
 ) -> None:
     """タスクのフィールドを更新する."""
     db = _get_db()
     resolved_id = _resolve_id(db, task_id)
-    task = db.update_task(resolved_id, title=title, description=description, jira_key=jira, next_action=next_action)
+    task = db.update_task(
+        resolved_id,
+        title=title,
+        description=description,
+        jira_key=jira,
+        next_action=next_action,
+    )
     db.close()
     typer.echo(f"Updated: {_short_id(task.id)}  {task.title}")
     if description is not None:
@@ -161,7 +189,9 @@ def rank(
     task = db.rank_task(resolved_id, after_id=after_id)
     db.close()
     if after_id:
-        typer.echo(f"Ranked: {_short_id(task.id)} after {_short_id(after_id)}  {task.title}")
+        typer.echo(
+            f"Ranked: {_short_id(task.id)} after {_short_id(after_id)}  {task.title}"
+        )
     else:
         typer.echo(f"Ranked: {_short_id(task.id)} → top  {task.title}")
 
@@ -184,13 +214,19 @@ def log(
     task_id: str,
     summary: Annotated[str, typer.Option(help="やったことの要約")],
     details: Annotated[Optional[str], typer.Option(help="変更ファイル等の詳細")] = None,
-    remaining: Annotated[Optional[str], typer.Option(help="残タスク・ブロッカー")] = None,
-    next_action: Annotated[Optional[str], typer.Option(help="次にやるべきこと（タスク本体も更新）")] = None,
+    remaining: Annotated[
+        Optional[str], typer.Option(help="残タスク・ブロッカー")
+    ] = None,
+    next_action: Annotated[
+        Optional[str], typer.Option(help="次にやるべきこと（タスク本体も更新）")
+    ] = None,
 ) -> None:
     """進捗ログを記録する."""
     db = _get_db()
     resolved_id = _resolve_id(db, task_id)
-    entry = db.add_log(resolved_id, summary=summary, details=details, remaining=remaining)
+    entry = db.add_log(
+        resolved_id, summary=summary, details=details, remaining=remaining
+    )
     if next_action is not None:
         db.update_task(resolved_id, next_action=next_action)
     db.close()
@@ -248,7 +284,9 @@ def show(task_id: str) -> None:
 
 @app.command()
 def daily(
-    date: Annotated[Optional[str], typer.Option(help="日付 YYYY-MM-DD（デフォルト: 今日）")] = None,
+    date: Annotated[
+        Optional[str], typer.Option(help="日付 YYYY-MM-DD（デフォルト: 今日）")
+    ] = None,
 ) -> None:
     """指定日の進捗をまとめて表示する."""
     db = _get_db()
@@ -272,7 +310,9 @@ def daily(
 
 @app.command("jira-report")
 def jira_report(
-    date: Annotated[Optional[str], typer.Option(help="日付 YYYY-MM-DD（デフォルト: 今日）")] = None,
+    date: Annotated[
+        Optional[str], typer.Option(help="日付 YYYY-MM-DD（デフォルト: 今日）")
+    ] = None,
 ) -> None:
     """JIRA更新用のレポートを生成する."""
     db = _get_db()
@@ -306,15 +346,23 @@ def jira_report(
 
 @app.command()
 def board(
-    status_filter: Annotated[Optional[str], typer.Option("--status", help="カンマ区切りのステータス")] = None,
-    all_tasks: Annotated[bool, typer.Option("--all", help="完了済みタスクもすべて表示")] = False,
+    status_filter: Annotated[
+        Optional[str], typer.Option("--status", help="カンマ区切りのステータス")
+    ] = None,
+    all_tasks: Annotated[
+        bool, typer.Option("--all", help="完了済みタスクもすべて表示")
+    ] = False,
 ) -> None:
     """カンバンボード風にタスクを表示する."""
     from rich.console import Console
     from rich.text import Text
 
     db = _get_db()
-    statuses = [TaskStatus(s.strip()) for s in status_filter.split(",")] if status_filter else None
+    statuses = (
+        [TaskStatus(s.strip()) for s in status_filter.split(",")]
+        if status_filter
+        else None
+    )
     done_since = None if all_tasks else _done_since_cutoff()
     tasks = db.list_tasks(statuses=statuses, done_since=done_since)
     db.close()

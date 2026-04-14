@@ -24,14 +24,26 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_add_task():
-    result = runner.invoke(app, ["add", "テスト実装", "--description", "テストの実装を行う"])
+    result = runner.invoke(
+        app, ["add", "テスト実装", "--description", "テストの実装を行う"]
+    )
     assert result.exit_code == 0
     assert "テスト実装" in result.stdout
     assert "テストの実装を行う" in result.stdout
 
 
 def test_add_task_with_jira():
-    result = runner.invoke(app, ["add", "JIRA連携", "--description", "JIRA連携タスクの説明", "--jira", "PROJ-123"])
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "JIRA連携",
+            "--description",
+            "JIRA連携タスクの説明",
+            "--jira",
+            "PROJ-123",
+        ],
+    )
     assert result.exit_code == 0
     assert "PROJ-123" in result.stdout
 
@@ -44,13 +56,18 @@ def test_add_task_requires_description():
 def test_add_task_with_parent():
     result = runner.invoke(app, ["add", "親タスク", "--description", "親の説明"])
     parent_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["add", "子タスク", "--description", "子の説明", "--parent", parent_id])
+    result = runner.invoke(
+        app, ["add", "子タスク", "--description", "子の説明", "--parent", parent_id]
+    )
     assert result.exit_code == 0
     assert "parent:" in result.stdout
 
 
 def test_add_task_with_next_action():
-    result = runner.invoke(app, ["add", "タスク", "--description", "説明", "--next-action", "まずこれをやる"])
+    result = runner.invoke(
+        app,
+        ["add", "タスク", "--description", "説明", "--next-action", "まずこれをやる"],
+    )
     assert result.exit_code == 0
     assert "まずこれをやる" in result.stdout
 
@@ -74,7 +91,9 @@ def test_list_tasks_flat():
 def test_list_tasks_tree_with_children():
     result = runner.invoke(app, ["add", "親", "--description", "親の説明"])
     parent_id = _extract_id(result.stdout)
-    runner.invoke(app, ["add", "子", "--description", "子の説明", "--parent", parent_id])
+    runner.invoke(
+        app, ["add", "子", "--description", "子の説明", "--parent", parent_id]
+    )
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0
     assert "親" in result.stdout
@@ -82,7 +101,9 @@ def test_list_tasks_tree_with_children():
 
 
 def test_list_next_action_display():
-    runner.invoke(app, ["add", "タスク", "--description", "説明", "--next-action", "次はこれ"])
+    runner.invoke(
+        app, ["add", "タスク", "--description", "説明", "--next-action", "次はこれ"]
+    )
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0
     assert "-> 次はこれ" in result.stdout
@@ -115,7 +136,19 @@ def test_update_next_action():
 def test_log_progress():
     result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["log", task_id, "--summary", "APIを実装した", "--details", "lib/api.py追加", "--remaining", "テスト"])
+    result = runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "APIを実装した",
+            "--details",
+            "lib/api.py追加",
+            "--remaining",
+            "テスト",
+        ],
+    )
     assert result.exit_code == 0
     assert "APIを実装した" in result.stdout
 
@@ -123,7 +156,19 @@ def test_log_progress():
 def test_log_with_next_action():
     result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["log", task_id, "--summary", "実装した", "--details", "詳細", "--next-action", "テストを書く"])
+    result = runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "実装した",
+            "--details",
+            "詳細",
+            "--next-action",
+            "テストを書く",
+        ],
+    )
     assert result.exit_code == 0
     assert "テストを書く" in result.stdout
     # タスク本体のnext_actionも更新されていることを確認
@@ -145,7 +190,9 @@ def test_show_task():
 def test_show_task_with_children():
     result = runner.invoke(app, ["add", "親タスク", "--description", "親の説明"])
     parent_id = _extract_id(result.stdout)
-    runner.invoke(app, ["add", "子タスク", "--description", "子の説明", "--parent", parent_id])
+    runner.invoke(
+        app, ["add", "子タスク", "--description", "子の説明", "--parent", parent_id]
+    )
     result = runner.invoke(app, ["show", parent_id])
     assert result.exit_code == 0
     assert "Children:" in result.stdout
@@ -162,7 +209,9 @@ def test_daily():
 
 
 def test_jira_report():
-    result = runner.invoke(app, ["add", "JIRA付き", "--description", "説明", "--jira", "PROJ-1"])
+    result = runner.invoke(
+        app, ["add", "JIRA付き", "--description", "説明", "--jira", "PROJ-1"]
+    )
     task_id = _extract_id(result.stdout)
     runner.invoke(app, ["log", task_id, "--summary", "実装完了"])
     result = runner.invoke(app, ["jira-report"])
@@ -181,7 +230,7 @@ def test_rank_to_top():
     assert "→ top" in result.stdout
     # listで先頭に来ていることを確認
     result = runner.invoke(app, ["list", "--flat"])
-    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
     assert "タスク3" in lines[0]
 
 
@@ -196,8 +245,8 @@ def test_rank_after():
     assert "after" in result.stdout
     # listでタスク1の次にタスク3が来ていることを確認
     result = runner.invoke(app, ["list", "--flat"])
-    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
-    titles = [l.split("  ")[-1].strip() for l in lines]
+    lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
+    titles = [line.split("  ")[-1].strip() for line in lines]
     # タスク1, タスク3, タスク2の順
     idx1 = next(i for i, t in enumerate(titles) if "タスク1" in t)
     idx3 = next(i for i, t in enumerate(titles) if "タスク3" in t)
@@ -209,7 +258,7 @@ def test_add_with_top():
     runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
     runner.invoke(app, ["add", "先頭タスク", "--description", "説明", "--top"])
     result = runner.invoke(app, ["list", "--flat"])
-    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
     assert "先頭タスク" in lines[0]
 
 
@@ -217,13 +266,15 @@ def test_add_with_after():
     result1 = runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
     task1_id = _extract_id(result1.stdout)
     runner.invoke(app, ["add", "タスク2", "--description", "説明2"])
-    runner.invoke(app, ["add", "挿入タスク", "--description", "説明", "--after", task1_id])
+    runner.invoke(
+        app, ["add", "挿入タスク", "--description", "説明", "--after", task1_id]
+    )
     result = runner.invoke(app, ["list", "--flat"])
-    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
     # タスク1, 挿入タスク, タスク2の順
-    idx1 = next(i for i, l in enumerate(lines) if "タスク1" in l)
-    idx_ins = next(i for i, l in enumerate(lines) if "挿入タスク" in l)
-    idx2 = next(i for i, l in enumerate(lines) if "タスク2" in l)
+    idx1 = next(i for i, line in enumerate(lines) if "タスク1" in line)
+    idx_ins = next(i for i, line in enumerate(lines) if "挿入タスク" in line)
+    idx2 = next(i for i, line in enumerate(lines) if "タスク2" in line)
     assert idx1 < idx_ins < idx2
 
 

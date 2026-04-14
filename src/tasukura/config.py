@@ -8,10 +8,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib  # type: ignore[no-redefine]
+import tomllib
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "tk" / "config.toml"
 DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "tk" / "tasks.db"

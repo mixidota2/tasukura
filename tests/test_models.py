@@ -2,7 +2,9 @@ from tasukura.models import Task, ProgressLog, TaskStatus
 
 
 def test_task_creation():
-    task = Task.new(title="テスト実装", description="テストの実装を行う", jira_key="PROJ-123")
+    task = Task.new(
+        title="テスト実装", description="テストの実装を行う", jira_key="PROJ-123"
+    )
     assert task.title == "テスト実装"
     assert task.description == "テストの実装を行う"
     assert task.status == TaskStatus.TODO

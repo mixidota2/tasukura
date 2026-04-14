@@ -144,7 +144,7 @@ def test_list_tasks_ordered_by_position(db: TaskDB):
 
 def test_rank_task_to_top(db: TaskDB):
     """rank_taskで最上位に移動できる."""
-    t1 = db.add_task("タスク1", description="説明1")
+    db.add_task("タスク1", description="説明1")
     db.add_task("タスク2", description="説明2")
     t3 = db.add_task("タスク3", description="説明3")
     db.rank_task(t3.id)  # タスク3を最上位に
