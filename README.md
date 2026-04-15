@@ -1,5 +1,10 @@
 # tasukura
 
+[![CI](https://github.com/mixidota2/tasukura/actions/workflows/ci.yml/badge.svg)](https://github.com/mixidota2/tasukura/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tasukura)](https://pypi.org/project/tasukura/)
+[![Python](https://img.shields.io/pypi/pyversions/tasukura)](https://pypi.org/project/tasukura/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A local task management CLI designed for AI coding agents. Track tasks and progress in SQLite — lightweight, portable, and agent-friendly.
 
 ## Features
