@@ -1,0 +1,15 @@
+{
+  "LABEL": {
+    "name": "title needs formatting",
+    "color": "FF0000"
+  },
+  "CHECKS": {
+    "regexp": "^(build|chore|ci|docs|feat|fix|perf|refactor|test)!?: [A-Z].*[^.!?, ]$",
+    "ignoreLabels": ["skip changelog"]
+  },
+  "MESSAGES": {
+    "success": "PR title OK!",
+    "failure": "Invalid PR title! Format: `type: Description` (e.g. `feat: Add export command`). Allowed types: build, chore, ci, docs, feat, fix, perf, refactor, test",
+    "notice": ""
+  }
+}
