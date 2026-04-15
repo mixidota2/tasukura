@@ -259,6 +259,30 @@ def test_add_with_after():
     assert idx1 < idx_ins < idx2
 
 
+def test_invalid_status_in_status_command():
+    """不正なステータスでエラーメッセージを表示する."""
+    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+    task_id = _extract_id(result.stdout)
+    result = runner.invoke(app, ["status", task_id, "invalid_status"])
+    assert result.exit_code == 1
+    assert "Invalid status" in result.stdout
+    assert "invalid_status" in result.stdout
+
+
+def test_invalid_status_in_list_command():
+    """listの--statusに不正な値でエラーメッセージを表示する."""
+    result = runner.invoke(app, ["list", "--status", "bad"])
+    assert result.exit_code == 1
+    assert "Invalid status" in result.stdout
+
+
+def test_invalid_status_in_board_command():
+    """boardの--statusに不正な値でエラーメッセージを表示する."""
+    result = runner.invoke(app, ["board", "--status", "bad"])
+    assert result.exit_code == 1
+    assert "Invalid status" in result.stdout
+
+
 def test_board():
     runner.invoke(app, ["add", "タスクA", "--description", "説明A"])
     result = runner.invoke(app, ["board"])

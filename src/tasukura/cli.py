@@ -43,6 +43,16 @@ def _short_id(task_id: str) -> str:
     return task_id[:12]
 
 
+def _parse_status(value: str) -> TaskStatus:
+    """Parse a status string, exiting with a clean error on invalid input."""
+    try:
+        return TaskStatus(value)
+    except ValueError:
+        valid = ", ".join(s.value for s in TaskStatus)
+        typer.echo(f"Invalid status: {value!r} (valid: {valid})")
+        raise typer.Exit(1)  # noqa: B904
+
+
 @app.command()
 def add(
     title: str,
@@ -65,24 +75,23 @@ def add(
     ] = None,
 ) -> None:
     """Add a new task."""
-    db = _get_db()
-    parent_id = _resolve_id(db, parent) if parent else None
-    position: int | None = None
-    if top:
-        position = db.get_top_position()
-    elif after:
-        after_id = _resolve_id(db, after)
-        position = db.get_position_after(after_id)
-    task = db.add_task(
-        title,
-        description=description,
-        source_id=source_id,
-        source=source,
-        parent_id=parent_id,
-        next_action=next_action,
-        position=position,
-    )
-    db.close()
+    with _get_db() as db:
+        parent_id = _resolve_id(db, parent) if parent else None
+        position: int | None = None
+        if top:
+            position = db.get_top_position()
+        elif after:
+            after_id = _resolve_id(db, after)
+            position = db.get_position_after(after_id)
+        task = db.add_task(
+            title,
+            description=description,
+            source_id=source_id,
+            source=source,
+            parent_id=parent_id,
+            next_action=next_action,
+            position=position,
+        )
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
     typer.echo(f"  description: {task.description}")
@@ -112,11 +121,10 @@ def list_tasks(
     ] = False,
 ) -> None:
     """List tasks. Defaults to tree view."""
-    db = _get_db()
-    statuses = [TaskStatus(s.strip()) for s in status.split(",")] if status else None
-    done_since = None if all_tasks else _done_since_cutoff()
-    tasks = db.list_tasks(statuses=statuses, source=source, done_since=done_since)
-    db.close()
+    statuses = [_parse_status(s.strip()) for s in status.split(",")] if status else None
+    with _get_db() as db:
+        done_since = None if all_tasks else _done_since_cutoff()
+        tasks = db.list_tasks(statuses=statuses, source=source, done_since=done_since)
     if not tasks:
         typer.echo("No tasks")
         return
@@ -171,17 +179,16 @@ def update(
     ] = None,
 ) -> None:
     """Update task fields."""
-    db = _get_db()
-    resolved_id = _resolve_id(db, task_id)
-    task = db.update_task(
-        resolved_id,
-        title=title,
-        description=description,
-        source_id=source_id,
-        source=source,
-        next_action=next_action,
-    )
-    db.close()
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        task = db.update_task(
+            resolved_id,
+            title=title,
+            description=description,
+            source_id=source_id,
+            source=source,
+            next_action=next_action,
+        )
     typer.echo(f"Updated: {_short_id(task.id)}  {task.title}")
     if description is not None:
         typer.echo(f"  description: {task.description}")
@@ -201,11 +208,10 @@ def rank(
     ] = None,
 ) -> None:
     """Change task display order. Moves to top if no --after specified."""
-    db = _get_db()
-    resolved_id = _resolve_id(db, task_id)
-    after_id = _resolve_id(db, after) if after else None
-    task = db.rank_task(resolved_id, after_id=after_id)
-    db.close()
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        after_id = _resolve_id(db, after) if after else None
+        task = db.rank_task(resolved_id, after_id=after_id)
     if after_id:
         typer.echo(
             f"Ranked: {_short_id(task.id)} after {_short_id(after_id)}  {task.title}"
@@ -220,10 +226,10 @@ def status(
     new_status: str,
 ) -> None:
     """Change a task's status."""
-    db = _get_db()
-    resolved_id = _resolve_id(db, task_id)
-    task = db.update_status(resolved_id, TaskStatus(new_status))
-    db.close()
+    parsed_status = _parse_status(new_status)
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        task = db.update_status(resolved_id, parsed_status)
     typer.echo(f"{_short_id(task.id)}  {task.status.value}  {task.title}")
 
 
@@ -242,14 +248,13 @@ def log(
     ] = None,
 ) -> None:
     """Record a progress log entry."""
-    db = _get_db()
-    resolved_id = _resolve_id(db, task_id)
-    entry = db.add_log(
-        resolved_id, summary=summary, details=details, remaining=remaining
-    )
-    if next_action is not None:
-        db.update_task(resolved_id, next_action=next_action)
-    db.close()
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        entry = db.add_log(
+            resolved_id, summary=summary, details=details, remaining=remaining
+        )
+        if next_action is not None:
+            db.update_task(resolved_id, next_action=next_action)
     typer.echo(f"Logged: {entry.summary}")
     if entry.details:
         typer.echo(f"  details: {entry.details}")
@@ -262,15 +267,14 @@ def log(
 @app.command()
 def show(task_id: str) -> None:
     """Show task details and progress logs."""
-    db = _get_db()
-    resolved_id = _resolve_id(db, task_id)
-    task = db.get_task(resolved_id)
-    if task is None:
-        typer.echo(f"Task {task_id} not found")
-        raise typer.Exit(1)
-    logs = db.get_logs(resolved_id)
-    child_tasks = [t for t in db.list_tasks() if t.parent_id == task.id]
-    db.close()
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        task = db.get_task(resolved_id)
+        if task is None:
+            typer.echo(f"Task {task_id} not found")
+            raise typer.Exit(1)
+        logs = db.get_logs(resolved_id)
+        child_tasks = [t for t in db.list_tasks() if t.parent_id == task.id]
 
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -317,15 +321,14 @@ def board(
     from rich.console import Console
     from rich.text import Text
 
-    db = _get_db()
     statuses = (
-        [TaskStatus(s.strip()) for s in status_filter.split(",")]
+        [_parse_status(s.strip()) for s in status_filter.split(",")]
         if status_filter
         else None
     )
-    done_since = None if all_tasks else _done_since_cutoff()
-    tasks = db.list_tasks(statuses=statuses, done_since=done_since)
-    db.close()
+    with _get_db() as db:
+        done_since = None if all_tasks else _done_since_cutoff()
+        tasks = db.list_tasks(statuses=statuses, done_since=done_since)
 
     display_statuses = [s for s in TaskStatus if statuses is None or s in statuses]
     by_status: dict[TaskStatus, list[Task]] = {s: [] for s in display_statuses}
