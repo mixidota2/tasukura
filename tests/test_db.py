@@ -18,6 +18,30 @@ def db():
     os.unlink(path)
 
 
+def test_context_manager():
+    """TaskDBはコンテキストマネージャとして使える."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    with TaskDB(path) as database:
+        task = database.add_task("テスト", description="説明")
+        assert task.title == "テスト"
+    # closeされた後のDBファイルは残っている
+    os.unlink(path)
+
+
+def test_db_file_permissions():
+    """DBファイルはowner read/writeのみのパーミッションで作成される."""
+    import stat
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "sub", "tasks.db")
+        database = TaskDB(db_path)
+        database.close()
+        file_mode = os.stat(db_path).st_mode
+        assert file_mode & stat.S_IRWXO == 0, "Others should have no access"
+        assert file_mode & stat.S_IRWXG == 0, "Group should have no access"
+
+
 def test_add_and_get_task(db: TaskDB):
     task = db.add_task(
         "テスト実装", description="テストを書く", source_id="PROJ-123", source="jira"
