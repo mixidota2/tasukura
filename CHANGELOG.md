@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.2...tasukura-v0.1.3) (2026-04-16)
+
+
+### Documentation
+
+* Replace hardcoded examples with generic placeholders in skill doc ([#10](https://github.com/mixidota2/tasukura/issues/10)) ([d14b8c4](https://github.com/mixidota2/tasukura/commit/d14b8c4100792e98608c0fe8e6cb516c9694b14f))
+
 ## [0.1.2](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.1...tasukura-v0.1.2) (2026-04-16)
 
 
