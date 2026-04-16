@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.3...tasukura-v0.1.4) (2026-04-16)
+
+
+### Bug Fixes
+
+* use PAT for release-please to trigger publish workflow ([#12](https://github.com/mixidota2/tasukura/issues/12)) ([94d64d6](https://github.com/mixidota2/tasukura/commit/94d64d63f92353d8037aea9333630299449fb174))
+
 ## [0.1.3](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.2...tasukura-v0.1.3) (2026-04-16)
 
 
