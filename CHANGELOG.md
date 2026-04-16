@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.1...tasukura-v0.1.2) (2026-04-16)
+
+
+### Features
+
+* Add tk delete command ([#6](https://github.com/mixidota2/tasukura/issues/6)) ([194e1ec](https://github.com/mixidota2/tasukura/commit/194e1ecd8f5427b6d4de45a77530c9064b44deec))
+
+
+### Bug Fixes
+
+* optimize DB queries for partial ID resolution and child task fetch ([#5](https://github.com/mixidota2/tasukura/issues/5)) ([58edc6f](https://github.com/mixidota2/tasukura/commit/58edc6f09da9481ffa279d7a810f75798e9a176e))
+
 ## [0.1.1](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.0...tasukura-v0.1.1) (2026-04-15)
 
 
