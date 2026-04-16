@@ -136,10 +136,10 @@ tk log <id> --summary "Created 7 tickets in JIRA"
 
 **Good (detailed):**
 ```
-tk log <id> --summary "Completed investigation and ticketing for ML pipeline refactor" \
-  --details "Investigated the full repository and created 7 tickets:
-1. RECOIH-1670: Unify ials/add_free_ials - config.py overlap ~100%, component.py ~80%
-2. RECOIH-1671: Unify pipeline structure - identified query_params type inconsistency
+tk log <id> --summary "Completed investigation and ticketing for auth module refactor" \
+  --details "Investigated the full repository and created 3 tickets:
+1. PROJ-101: Extract shared validation logic - utils.py overlap ~90%
+2. PROJ-102: Unify error handling - identified inconsistent response format
 ..."
 ```
 
