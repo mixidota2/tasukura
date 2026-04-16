@@ -180,6 +180,32 @@ def test_rank_task_after(db: TaskDB):
     assert [t.title for t in tasks] == ["タスク1", "タスク3", "タスク2"]
 
 
+def test_delete_task(db: TaskDB):
+    """タスクを削除できる."""
+    task = db.add_task("削除対象", description="説明")
+    deleted = db.delete_task(task.id)
+    assert deleted.id == task.id
+    assert deleted.title == "削除対象"
+    assert db.get_task(task.id) is None
+
+
+def test_delete_task_with_logs(db: TaskDB):
+    """タスクと関連するprogress_logsを一緒に削除できる."""
+    task = db.add_task("ログ付きタスク", description="説明")
+    db.add_log(task.id, summary="進捗1")
+    db.add_log(task.id, summary="進捗2")
+    assert len(db.get_logs(task.id)) == 2
+    db.delete_task(task.id)
+    assert db.get_task(task.id) is None
+    assert db.get_logs(task.id) == []
+
+
+def test_delete_task_not_found(db: TaskDB):
+    """存在しないタスクの削除はValueErrorになる."""
+    with pytest.raises(ValueError, match="not found"):
+        db.delete_task("nonexistent")
+
+
 def test_add_task_with_position(db: TaskDB):
     """position指定でタスクを追加できる."""
     db.add_task("タスク1", description="説明1")
