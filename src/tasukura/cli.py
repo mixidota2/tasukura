@@ -321,11 +321,7 @@ def board(
     from rich.console import Console
     from rich.text import Text
 
-    statuses = (
-        [_parse_status(s.strip()) for s in status.split(",")]
-        if status
-        else None
-    )
+    statuses = [_parse_status(s.strip()) for s in status.split(",")] if status else None
     with _get_db() as db:
         done_since = None if all_tasks else _done_since_cutoff()
         tasks = db.list_tasks(statuses=statuses, done_since=done_since)

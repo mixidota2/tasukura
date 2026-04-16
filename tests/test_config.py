@@ -16,10 +16,7 @@ def test_config_from_toml(tmp_path: Path):
     """config.tomlの値が正しく読み込まれる."""
     config_file = tmp_path / "config.toml"
     config_file.write_text(
-        'db_path = "/tmp/custom.db"\n'
-        "\n"
-        "[board]\n"
-        "done_retention_days = 7\n"
+        'db_path = "/tmp/custom.db"\n\n[board]\ndone_retention_days = 7\n'
     )
     config = TkConfig.load(config_path=config_file)
     assert config.db_path == Path("/tmp/custom.db")
