@@ -319,8 +319,8 @@ def show(task_id: str) -> None:
 
 @app.command()
 def board(
-    status_filter: Annotated[
-        Optional[str], typer.Option("--status", help="Comma-separated statuses")
+    status: Annotated[
+        Optional[str], typer.Option(help="Comma-separated statuses")
     ] = None,
     all_tasks: Annotated[
         bool, typer.Option("--all", help="Include all done tasks")
@@ -330,11 +330,7 @@ def board(
     from rich.console import Console
     from rich.text import Text
 
-    statuses = (
-        [_parse_status(s.strip()) for s in status_filter.split(",")]
-        if status_filter
-        else None
-    )
+    statuses = [_parse_status(s.strip()) for s in status.split(",")] if status else None
     with _get_db() as db:
         done_since = None if all_tasks else _done_since_cutoff()
         tasks = db.list_tasks(statuses=statuses, done_since=done_since)
