@@ -336,6 +336,29 @@ class TaskDB:
             raise RuntimeError(msg)
         return updated
 
+    def delete_task(self, task_id: str) -> Task:
+        """Delete a task and its associated progress logs.
+
+        Args:
+            task_id: The ID of the task to delete.
+
+        Returns:
+            The deleted task.
+
+        Raises:
+            ValueError: If the task is not found.
+        """
+        task = self.get_task(task_id)
+        if task is None:
+            msg = f"Task {task_id} not found"
+            raise ValueError(msg)
+        self._conn.execute(
+            "DELETE FROM progress_logs WHERE task_id = ?", (task_id,)
+        )
+        self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        self._conn.commit()
+        return task
+
     def add_log(
         self,
         task_id: str,

@@ -201,6 +201,36 @@ def test_show_task_with_children():
     assert "子タスク" in result.stdout
 
 
+def test_delete_task():
+    result = runner.invoke(app, ["add", "削除対象", "--description", "削除するタスク"])
+    task_id = _extract_id(result.stdout)
+    result = runner.invoke(app, ["delete", task_id])
+    assert result.exit_code == 0
+    assert "Deleted:" in result.stdout
+    assert "削除対象" in result.stdout
+    # listに表示されないことを確認
+    result = runner.invoke(app, ["list"])
+    assert "削除対象" not in result.stdout
+
+
+def test_delete_task_with_logs():
+    result = runner.invoke(
+        app, ["add", "ログ付き削除", "--description", "ログ付きタスクの削除"]
+    )
+    task_id = _extract_id(result.stdout)
+    runner.invoke(app, ["log", task_id, "--summary", "進捗メモ"])
+    # showでログが見えることを確認
+    result = runner.invoke(app, ["show", task_id])
+    assert "進捗メモ" in result.stdout
+    # 削除
+    result = runner.invoke(app, ["delete", task_id])
+    assert result.exit_code == 0
+    assert "Deleted:" in result.stdout
+    # listに表示されないことを確認
+    result = runner.invoke(app, ["list"])
+    assert "ログ付き削除" not in result.stdout
+
+
 def test_rank_to_top():
     runner.invoke(app, ["add", "タスク1", "--description", "説明1"])
     runner.invoke(app, ["add", "タスク2", "--description", "説明2"])

@@ -58,6 +58,7 @@ tk list --source jira
 | `tk add` | Add a new task |
 | `tk list` | List tasks (tree view by default) |
 | `tk update` | Update task fields |
+| `tk delete` | Delete a task and its progress logs |
 | `tk status` | Change task status (todo/in_progress/in_review/done) |
 | `tk log` | Record a progress log entry |
 | `tk rank` | Change display order |

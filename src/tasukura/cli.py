@@ -201,6 +201,15 @@ def update(
 
 
 @app.command()
+def delete(task_id: str) -> None:
+    """Delete a task and its progress logs."""
+    with _get_db() as db:
+        resolved_id = _resolve_id(db, task_id)
+        task = db.delete_task(resolved_id)
+    typer.echo(f"Deleted: {_short_id(task.id)}  {task.title}")
+
+
+@app.command()
 def rank(
     task_id: str,
     after: Annotated[
