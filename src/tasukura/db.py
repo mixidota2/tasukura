@@ -352,9 +352,7 @@ class TaskDB:
         if task is None:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
-        self._conn.execute(
-            "DELETE FROM progress_logs WHERE task_id = ?", (task_id,)
-        )
+        self._conn.execute("DELETE FROM progress_logs WHERE task_id = ?", (task_id,))
         self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         self._conn.commit()
         return task
