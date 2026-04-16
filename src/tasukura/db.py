@@ -200,11 +200,34 @@ class TaskDB:
             return None
         return self._row_to_task(row)
 
+    def resolve_id(self, partial_id: str) -> str:
+        """Resolve a partial task ID prefix to the full ID.
+
+        Args:
+            partial_id: A prefix of the task ID to search for.
+
+        Returns:
+            The full task ID if exactly one match is found.
+
+        Raises:
+            ValueError: If zero or multiple tasks match the prefix.
+        """
+        query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE id LIKE ? || '%'"
+        rows = self._conn.execute(query, (partial_id,)).fetchall()
+        if len(rows) == 0:
+            msg = f"Task not found: {partial_id}"
+            raise ValueError(msg)
+        if len(rows) > 1:
+            msg = f"Ambiguous ID: {partial_id} (matches {len(rows)} tasks)"
+            raise ValueError(msg)
+        return self._row_to_task(rows[0]).id
+
     def list_tasks(
         self,
         statuses: list[TaskStatus] | None = None,
         source: str | None = None,
         done_since: str | None = None,
+        parent_id: str | None = None,
     ) -> list[Task]:
         """List tasks.
 
@@ -213,6 +236,7 @@ class TaskDB:
             source: Filter by source type (e.g. "jira").
             done_since: Limit done tasks to those updated since this ISO8601 datetime.
                         None returns all done tasks.
+            parent_id: Filter by parent task ID.
         """
         query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE 1=1"
         params: list[str] = []
@@ -229,6 +253,10 @@ class TaskDB:
         if source:
             query += " AND source = ?"
             params.append(source)
+
+        if parent_id is not None:
+            query += " AND parent_id = ?"
+            params.append(parent_id)
 
         query += " ORDER BY position ASC"
         rows = self._conn.execute(query, params).fetchall()

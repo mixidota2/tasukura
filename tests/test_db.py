@@ -186,3 +186,45 @@ def test_add_task_with_position(db: TaskDB):
     db.add_task("タスク先頭", description="説明", position=-1)
     tasks = db.list_tasks()
     assert tasks[0].title == "タスク先頭"
+
+
+def test_resolve_id_found(db: TaskDB):
+    """部分IDで一意にタスクを特定できる."""
+    task = db.add_task("解決テスト", description="説明")
+    resolved = db.resolve_id(task.id[:8])
+    assert resolved == task.id
+
+
+def test_resolve_id_not_found(db: TaskDB):
+    """存在しない部分IDはValueErrorを返す."""
+    with pytest.raises(ValueError, match="Task not found"):
+        db.resolve_id("nonexistent_id_prefix")
+
+
+def test_resolve_id_ambiguous(db: TaskDB):
+    """複数マッチする部分IDはValueErrorを返す."""
+    t1 = db.add_task("タスクA", description="説明A")
+    t2 = db.add_task("タスクB", description="説明B")
+    # 空文字列は全タスクにマッチするため曖昧になる
+    common_prefix = ""
+    # 2つ以上のタスクがある状態で空プレフィックスを使う
+    with pytest.raises(ValueError, match="Ambiguous ID"):
+        db.resolve_id(common_prefix)
+
+    # フルIDなら一意に解決できることも確認
+    assert db.resolve_id(t1.id) == t1.id
+    assert db.resolve_id(t2.id) == t2.id
+
+
+def test_list_tasks_by_parent(db: TaskDB):
+    """parent_idフィルタで子タスクを取得できる."""
+    parent = db.add_task("親タスク", description="親の説明")
+    child1 = db.add_task("子タスク1", description="子1の説明", parent_id=parent.id)
+    child2 = db.add_task("子タスク2", description="子2の説明", parent_id=parent.id)
+    db.add_task("無関係タスク", description="無関係の説明")
+
+    children = db.list_tasks(parent_id=parent.id)
+    assert len(children) == 2
+    child_ids = {c.id for c in children}
+    assert child1.id in child_ids
+    assert child2.id in child_ids
