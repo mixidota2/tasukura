@@ -274,7 +274,7 @@ def show(task_id: str) -> None:
             typer.echo(f"Task {task_id} not found")
             raise typer.Exit(1)
         logs = db.get_logs(resolved_id)
-        child_tasks = [t for t in db.list_tasks() if t.parent_id == task.id]
+        child_tasks = db.list_tasks(parent_id=task.id)
 
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -408,12 +408,8 @@ def board(
 
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
-    tasks = db.list_tasks()
-    matches = [t for t in tasks if t.id.startswith(partial_id)]
-    if len(matches) == 0:
-        typer.echo(f"Task not found: {partial_id}")
-        raise typer.Exit(1)
-    if len(matches) > 1:
-        typer.echo(f"Ambiguous ID: {partial_id} (matches {len(matches)} tasks)")
-        raise typer.Exit(1)
-    return matches[0].id
+    try:
+        return db.resolve_id(partial_id)
+    except ValueError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)  # noqa: B904
