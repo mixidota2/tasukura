@@ -10,7 +10,9 @@ on:
 
 jobs:
   check:
-    if: github.actor != 'release-please[bot]'
+    # release-please uses a PAT, so github.actor is the token owner, not 'release-please[bot]'.
+    # Skip by branch prefix instead, which release-please always uses.
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     steps:
       - uses: thehanimo/pr-title-checker@v1.4.2
