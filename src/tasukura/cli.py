@@ -273,6 +273,44 @@ def log(
         typer.echo(f"  next: {next_action}")
 
 
+@app.command("log-update")
+def log_update(
+    log_id: str,
+    summary: Annotated[
+        Optional[str], typer.Option(help="Summary of what was done")
+    ] = None,
+    details: Annotated[
+        Optional[str], typer.Option(help="Detailed changes (files, etc.)")
+    ] = None,
+    remaining: Annotated[
+        Optional[str], typer.Option(help="Remaining work or blockers")
+    ] = None,
+) -> None:
+    """Update an existing progress log entry.
+
+    Pass an empty string to clear ``--details`` or ``--remaining``.
+    """
+    with _get_db() as db:
+        resolved_id = _resolve_log_id(db, log_id)
+        entry = db.update_log(
+            resolved_id, summary=summary, details=details, remaining=remaining
+        )
+    typer.echo(f"Updated log: {_short_id(entry.id)}  {entry.summary}")
+    if entry.details:
+        typer.echo(f"  details: {entry.details}")
+    if entry.remaining:
+        typer.echo(f"  remaining: {entry.remaining}")
+
+
+@app.command("log-delete")
+def log_delete(log_id: str) -> None:
+    """Delete a progress log entry."""
+    with _get_db() as db:
+        resolved_id = _resolve_log_id(db, log_id)
+        entry = db.delete_log(resolved_id)
+    typer.echo(f"Deleted log: {_short_id(entry.id)}  {entry.summary}")
+
+
 @app.command()
 def show(task_id: str) -> None:
     """Show task details and progress logs."""
@@ -308,7 +346,9 @@ def show(task_id: str) -> None:
     if logs:
         typer.echo("Progress:")
         for entry in logs:
-            typer.echo(f"  [{entry.created_at[:16]}] {entry.summary}")
+            typer.echo(
+                f"  {_short_id(entry.id)}  [{entry.created_at[:16]}] {entry.summary}"
+            )
             if entry.details:
                 typer.echo(f"    details: {entry.details}")
             if entry.remaining:
@@ -415,6 +455,15 @@ def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:
         return db.resolve_id(partial_id)
+    except ValueError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)  # noqa: B904
+
+
+def _resolve_log_id(db: TaskDB, partial_id: str) -> str:
+    """Resolve a partial ID to a full progress log ID."""
+    try:
+        return db.resolve_log_id(partial_id)
     except ValueError as e:
         typer.echo(str(e))
         raise typer.Exit(1)  # noqa: B904

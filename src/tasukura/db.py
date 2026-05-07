@@ -416,14 +416,108 @@ class TaskDB:
             "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
             (task_id,),
         ).fetchall()
-        return [
-            ProgressLog(
-                id=r[0],
-                task_id=r[1],
-                summary=r[2],
-                details=r[3],
-                remaining=r[4],
-                created_at=r[5],
-            )
-            for r in rows
-        ]
+        return [self._row_to_log(r) for r in rows]
+
+    @staticmethod
+    def _row_to_log(r: tuple) -> ProgressLog:
+        """Convert a database row to a ProgressLog."""
+        return ProgressLog(
+            id=r[0],
+            task_id=r[1],
+            summary=r[2],
+            details=r[3],
+            remaining=r[4],
+            created_at=r[5],
+        )
+
+    def get_log(self, log_id: str) -> ProgressLog | None:
+        """Get a progress log by ID."""
+        row = self._conn.execute(
+            "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE id = ?",
+            (log_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_log(row)
+
+    def resolve_log_id(self, partial_id: str) -> str:
+        """Resolve a partial progress log ID prefix to the full ID.
+
+        Args:
+            partial_id: A prefix of the log ID to search for.
+
+        Returns:
+            The full log ID if exactly one match is found.
+
+        Raises:
+            ValueError: If zero or multiple logs match the prefix.
+        """
+        rows = self._conn.execute(
+            "SELECT id FROM progress_logs WHERE id LIKE ? || '%'", (partial_id,)
+        ).fetchall()
+        if len(rows) == 0:
+            msg = f"Log not found: {partial_id}"
+            raise ValueError(msg)
+        if len(rows) > 1:
+            msg = f"Ambiguous log ID: {partial_id} (matches {len(rows)} logs)"
+            raise ValueError(msg)
+        return rows[0][0]
+
+    def update_log(
+        self,
+        log_id: str,
+        summary: str | None = None,
+        details: str | None = None,
+        remaining: str | None = None,
+    ) -> ProgressLog:
+        """Update progress log fields. Only specified fields are updated.
+
+        Pass an empty string to clear `details` or `remaining`.
+        """
+        log = self.get_log(log_id)
+        if log is None:
+            msg = f"Log {log_id} not found"
+            raise ValueError(msg)
+        updates: list[str] = []
+        params: list[str] = []
+        if summary is not None:
+            updates.append("summary = ?")
+            params.append(summary)
+        if details is not None:
+            updates.append("details = ?")
+            params.append(details)
+        if remaining is not None:
+            updates.append("remaining = ?")
+            params.append(remaining)
+        if not updates:
+            return log
+        params.append(log_id)
+        self._conn.execute(
+            f"UPDATE progress_logs SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self._conn.commit()
+        updated = self.get_log(log_id)
+        if updated is None:
+            msg = f"Log {log_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
+        return updated
+
+    def delete_log(self, log_id: str) -> ProgressLog:
+        """Delete a progress log entry.
+
+        Args:
+            log_id: The ID of the log to delete.
+
+        Returns:
+            The deleted log.
+
+        Raises:
+            ValueError: If the log is not found.
+        """
+        log = self.get_log(log_id)
+        if log is None:
+            msg = f"Log {log_id} not found"
+            raise ValueError(msg)
+        self._conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
+        self._conn.commit()
+        return log

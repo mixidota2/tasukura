@@ -178,6 +178,101 @@ def test_log_with_next_action():
     assert "テストを書く" in result.stdout
 
 
+def test_log_update():
+    """log-updateで個別ログの内容を変更できる."""
+    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+    task_id = _extract_id(result.stdout)
+    runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "旧サマリ",
+            "--details",
+            "旧詳細",
+        ],
+    )
+    log_id = _extract_log_id(runner.invoke(app, ["show", task_id]).stdout)
+    result = runner.invoke(
+        app,
+        ["log-update", log_id, "--summary", "新サマリ", "--details", "新詳細"],
+    )
+    assert result.exit_code == 0
+    assert "新サマリ" in result.stdout
+    # showにも反映されている
+    show_out = runner.invoke(app, ["show", task_id]).stdout
+    assert "新サマリ" in show_out
+    assert "新詳細" in show_out
+    assert "旧サマリ" not in show_out
+
+
+def test_log_update_partial():
+    """log-updateは指定フィールドのみ更新する."""
+    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+    task_id = _extract_id(result.stdout)
+    runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "summary",
+            "--details",
+            "details",
+            "--remaining",
+            "remaining",
+        ],
+    )
+    log_id = _extract_log_id(runner.invoke(app, ["show", task_id]).stdout)
+    result = runner.invoke(app, ["log-update", log_id, "--remaining", "新remaining"])
+    assert result.exit_code == 0
+    show_out = runner.invoke(app, ["show", task_id]).stdout
+    assert "summary" in show_out
+    assert "details" in show_out
+    assert "新remaining" in show_out
+
+
+def test_log_update_not_found():
+    """存在しないログIDはエラーになる."""
+    result = runner.invoke(app, ["log-update", "zzzzzzzz", "--summary", "x"])
+    assert result.exit_code == 1
+    assert "Log not found" in result.stdout
+
+
+def test_log_delete():
+    """log-deleteで個別ログを削除できる."""
+    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+    task_id = _extract_id(result.stdout)
+    runner.invoke(app, ["log", task_id, "--summary", "残すログ"])
+    runner.invoke(app, ["log", task_id, "--summary", "消すログ"])
+    show_out = runner.invoke(app, ["show", task_id]).stdout
+    log_id = _extract_log_id_for_summary(show_out, "消すログ")
+    result = runner.invoke(app, ["log-delete", log_id])
+    assert result.exit_code == 0
+    assert "Deleted log:" in result.stdout
+    show_out = runner.invoke(app, ["show", task_id]).stdout
+    assert "残すログ" in show_out
+    assert "消すログ" not in show_out
+
+
+def test_log_delete_not_found():
+    """存在しないログIDの削除はエラー."""
+    result = runner.invoke(app, ["log-delete", "zzzzzzzz"])
+    assert result.exit_code == 1
+    assert "Log not found" in result.stdout
+
+
+def test_show_displays_log_id():
+    """tk showはProgressに短縮ログIDを表示する."""
+    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+    task_id = _extract_id(result.stdout)
+    runner.invoke(app, ["log", task_id, "--summary", "作業"])
+    show_out = runner.invoke(app, ["show", task_id]).stdout
+    # ULIDの先頭が必ず "01" で始まる
+    assert "  01" in show_out
+
+
 def test_show_task():
     result = runner.invoke(app, ["add", "タスク", "--description", "タスクの詳細説明"])
     task_id = _extract_id(result.stdout)
@@ -327,4 +422,31 @@ def _extract_id(output: str) -> str:
         if "ID:" in line:
             return line.split("ID:")[1].strip().split()[0]
     msg = f"ID not found in output: {output}"
+    raise ValueError(msg)
+
+
+def _extract_log_id(show_output: str) -> str:
+    """tk showの出力から最初の短縮ログIDを抽出する."""
+    in_progress = False
+    for line in show_output.split("\n"):
+        if line.startswith("Progress:"):
+            in_progress = True
+            continue
+        if in_progress and line.startswith("  01"):
+            # 行頭は "  <short_id>  [..."
+            return line.strip().split()[0]
+    msg = f"Log ID not found in output: {show_output}"
+    raise ValueError(msg)
+
+
+def _extract_log_id_for_summary(show_output: str, summary: str) -> str:
+    """tk showの出力から指定summaryに対応する短縮ログIDを抽出する."""
+    in_progress = False
+    for line in show_output.split("\n"):
+        if line.startswith("Progress:"):
+            in_progress = True
+            continue
+        if in_progress and line.startswith("  01") and summary in line:
+            return line.strip().split()[0]
+    msg = f"Log ID for summary {summary!r} not found in: {show_output}"
     raise ValueError(msg)

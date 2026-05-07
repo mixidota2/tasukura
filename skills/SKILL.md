@@ -37,11 +37,13 @@ python tools/tk/main.py ...
 | `tk update <id> [--title "..."] [--description "..."] [--next-action "..."] [--source-id ID] [--source TYPE]` | Update task fields |
 | `tk status <id> <new_status>` | Change status (todo/in_progress/in_review/done) |
 | `tk log <id> --summary "..." [--details "..."] [--remaining "..."] [--next-action "..."]` | Record progress |
+| `tk log-update <log_id> [--summary "..."] [--details "..."] [--remaining "..."]` | Update an existing log entry (empty string clears details/remaining) |
+| `tk log-delete <log_id>` | Delete a log entry |
 | `tk rank <id> [--after ID]` | Change display order (no args = move to top, --after = place after specified task) |
 | `tk board [--status todo,in_progress]` | Kanban board view by status |
 | `tk show <id>` | Show task details + logs + children |
 
-IDs can be shortened — type just enough characters to uniquely identify a task.
+IDs can be shortened — type just enough characters to uniquely identify a task or log. `tk show <task_id>` displays the short log ID at the head of each Progress line; use that to specify a target for `log-update` / `log-delete`.
 
 ## Task Fields
 
