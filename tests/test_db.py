@@ -242,6 +242,110 @@ def test_resolve_id_ambiguous(db: TaskDB):
     assert db.resolve_id(t2.id) == t2.id
 
 
+def test_get_log(db: TaskDB):
+    """get_logでログを単体取得できる."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(task.id, summary="作業した", details="詳細")
+    fetched = db.get_log(log.id)
+    assert fetched is not None
+    assert fetched.id == log.id
+    assert fetched.summary == "作業した"
+    assert fetched.details == "詳細"
+
+
+def test_get_log_not_found(db: TaskDB):
+    """存在しないログIDはNoneを返す."""
+    assert db.get_log("nonexistent") is None
+
+
+def test_resolve_log_id_found(db: TaskDB):
+    """部分IDで一意にログを特定できる."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(task.id, summary="作業")
+    resolved = db.resolve_log_id(log.id[:8])
+    assert resolved == log.id
+
+
+def test_resolve_log_id_not_found(db: TaskDB):
+    """存在しない部分IDはValueErrorを返す."""
+    with pytest.raises(ValueError, match="Log not found"):
+        db.resolve_log_id("zzz_nonexistent")
+
+
+def test_resolve_log_id_ambiguous(db: TaskDB):
+    """複数マッチする部分IDはValueErrorを返す."""
+    task = db.add_task("タスク", description="説明")
+    db.add_log(task.id, summary="作業1")
+    db.add_log(task.id, summary="作業2")
+    with pytest.raises(ValueError, match="Ambiguous log ID"):
+        db.resolve_log_id("")
+
+
+def test_update_log_summary(db: TaskDB):
+    """update_logでsummaryを更新できる."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(task.id, summary="旧summary", details="詳細")
+    updated = db.update_log(log.id, summary="新summary")
+    assert updated.summary == "新summary"
+    # 他のフィールドは保持される
+    assert updated.details == "詳細"
+
+
+def test_update_log_partial(db: TaskDB):
+    """update_logは指定フィールドのみ更新する."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(
+        task.id, summary="summary", details="details", remaining="remaining"
+    )
+    updated = db.update_log(log.id, details="新details")
+    assert updated.summary == "summary"
+    assert updated.details == "新details"
+    assert updated.remaining == "remaining"
+
+
+def test_update_log_clear_with_empty_string(db: TaskDB):
+    """空文字でdetails/remainingをクリアできる."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(task.id, summary="s", details="d", remaining="r")
+    updated = db.update_log(log.id, details="", remaining="")
+    assert updated.details == ""
+    assert updated.remaining == ""
+
+
+def test_update_log_no_changes(db: TaskDB):
+    """フィールド未指定の場合は変更なしで現在の値を返す."""
+    task = db.add_task("タスク", description="説明")
+    log = db.add_log(task.id, summary="summary")
+    result = db.update_log(log.id)
+    assert result.summary == "summary"
+
+
+def test_update_log_not_found(db: TaskDB):
+    """存在しないログの更新はValueErrorになる."""
+    with pytest.raises(ValueError, match="not found"):
+        db.update_log("nonexistent", summary="x")
+
+
+def test_delete_log(db: TaskDB):
+    """delete_logで個別ログを削除できる."""
+    task = db.add_task("タスク", description="説明")
+    log1 = db.add_log(task.id, summary="ログ1")
+    log2 = db.add_log(task.id, summary="ログ2")
+    deleted = db.delete_log(log1.id)
+    assert deleted.id == log1.id
+    assert deleted.summary == "ログ1"
+    # log1は消え、log2は残る
+    remaining = db.get_logs(task.id)
+    assert len(remaining) == 1
+    assert remaining[0].id == log2.id
+
+
+def test_delete_log_not_found(db: TaskDB):
+    """存在しないログの削除はValueErrorになる."""
+    with pytest.raises(ValueError, match="not found"):
+        db.delete_log("nonexistent")
+
+
 def test_list_tasks_by_parent(db: TaskDB):
     """parent_idフィルタで子タスクを取得できる."""
     parent = db.add_task("親タスク", description="親の説明")
