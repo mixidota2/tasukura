@@ -61,6 +61,8 @@ tk list --source jira
 | `tk delete` | Delete a task and its progress logs |
 | `tk status` | Change task status (todo/in_progress/in_review/done) |
 | `tk log` | Record a progress log entry |
+| `tk log-update` | Update an existing progress log entry |
+| `tk log-delete` | Delete a progress log entry |
 | `tk rank` | Change display order |
 | `tk board` | Kanban board view |
 | `tk show` | Show task details and progress logs |
