@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.5...tasukura-v0.1.6) (2026-05-08)
+
+
+### Documentation
+
+* Add log-update and log-delete to README commands table ([#17](https://github.com/mixidota2/tasukura/issues/17)) ([b5c8a11](https://github.com/mixidota2/tasukura/commit/b5c8a11a6ee9037405ba6d24a95a62077512ac73))
+
 ## [0.1.5](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.4...tasukura-v0.1.5) (2026-05-07)
 
 
