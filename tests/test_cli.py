@@ -953,3 +953,34 @@ def test_record_obsolete_via_cli():
 def test_record_obsolete_not_found():
     result = runner.invoke(app, ["record", "obsolete", "01ZZZZZZ"])
     assert result.exit_code != 0
+
+
+def test_record_verify_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "v-target",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "verify", rec_id])
+    assert result.exit_code == 0, result.stdout
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "last_verified_at" in show.stdout
+
+
+def test_record_verify_not_found():
+    result = runner.invoke(app, ["record", "verify", "01ZZZZZZ"])
+    assert result.exit_code != 0

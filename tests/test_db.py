@@ -724,3 +724,36 @@ def test_obsolete_record_excluded_from_default_list(db: TaskDB):
 def test_obsolete_record_not_found(db: TaskDB):
     with pytest.raises(ValueError, match=r"Record .* not found"):
         db.obsolete_record("01NOTHING" + "X" * 17)
+
+
+def test_verify_record_sets_last_verified_at(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    assert rec.last_verified_at is None
+    out = db.verify_record(rec.id)
+    assert out.last_verified_at is not None
+    assert out.summary == rec.summary
+    assert out.status == rec.status
+    assert out.details == rec.details
+
+
+def test_verify_record_idempotent_update_pushes_timestamp(db: TaskDB):
+    """同じ record を再 verify すると timestamp が更新される."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    first = db.verify_record(rec.id)
+    assert first.last_verified_at is not None
+    second = db.verify_record(rec.id)
+    assert second.last_verified_at is not None
+    assert second.last_verified_at >= first.last_verified_at
+
+
+def test_verify_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.verify_record("01NOTHING" + "X" * 17)

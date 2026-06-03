@@ -627,6 +627,20 @@ def record_obsolete(record_id: str) -> None:
     typer.echo(f"Obsoleted: {_short_id(record.id)}  {record.summary}")
 
 
+@record_app.command("verify")
+def record_verify(record_id: str) -> None:
+    """Mark a record as verified (re-confirmed valid) at the current time."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.verify_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Verified: {_short_id(record.id)}  {record.summary}")
+    typer.echo(f"  last_verified_at: {record.last_verified_at}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:
