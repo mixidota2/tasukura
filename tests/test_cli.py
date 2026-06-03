@@ -1205,3 +1205,51 @@ def test_show_active_count_warning():
     out = runner.invoke(app, ["show", task_id]).stdout
     assert "Active blockers" in out or "Active Blockers" in out
     assert "exceed threshold" in out
+
+
+def test_log_next_action_recorded_on_log():
+    import sqlite3
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_out = runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "進捗",
+            "--next-action",
+            "テストを書く",
+        ],
+    )
+    assert log_out.exit_code == 0
+    log_id = _extract_id(log_out.stdout)
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT next_action_set FROM progress_logs WHERE id = ?", (log_id,)
+    ).fetchone()
+    conn.close()
+    assert row[0] == "テストを書く"
+
+
+def test_log_description_updates_task():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "initial-desc"]).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "詳細を差し替え",
+            "--description",
+            "updated-desc",
+        ],
+    )
+    show = runner.invoke(app, ["show", task_id]).stdout
+    assert "updated-desc" in show
+    assert "initial-desc" not in show

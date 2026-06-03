@@ -283,17 +283,32 @@ def log(
         Optional[str], typer.Option(help="Remaining work or blockers")
     ] = None,
     next_action: Annotated[
-        Optional[str], typer.Option(help="Next action (also updates the task)")
+        Optional[str],
+        typer.Option(
+            help="Next action — updates the task and records the change on this log"
+        ),
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Update task.description (no log-side history; recommended for description edits)"
+        ),
     ] = None,
 ) -> None:
     """Record a progress log entry."""
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         entry = db.add_log(
-            resolved_id, summary=summary, details=details, remaining=remaining
+            resolved_id,
+            summary=summary,
+            details=details,
+            remaining=remaining,
+            next_action_set=next_action,
         )
         if next_action is not None:
             db.update_task(resolved_id, next_action=next_action)
+        if description is not None:
+            db.update_task(resolved_id, description=description)
     typer.echo(f"Logged: {entry.summary}")
     typer.echo(f"ID: {entry.id}")
     if entry.details:
@@ -302,6 +317,8 @@ def log(
         typer.echo(f"  remaining: {entry.remaining}")
     if next_action is not None:
         typer.echo(f"  next: {next_action}")
+    if description is not None:
+        typer.echo(f"  description: {description}")
 
 
 @app.command("log-update")
