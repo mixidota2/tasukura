@@ -450,3 +450,70 @@ def _extract_log_id_for_summary(show_output: str, summary: str) -> str:
             return line.strip().split()[0]
     msg = f"Log ID for summary {summary!r} not found in: {show_output}"
     raise ValueError(msg)
+
+
+def test_record_add_requires_log_id():
+    """--log-id なしでは失敗する (promotion gate)."""
+    runner.invoke(app, ["add", "T1", "--description", "d"])
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            "01ANYTASK",
+            "--kind",
+            "decision",
+            "--summary",
+            "S",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_record_add_success():
+    add_out = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(add_out.stdout)
+    log_out = runner.invoke(app, ["log", task_id, "--summary", "raw evidence"])
+    assert log_out.exit_code == 0
+    log_id = _extract_id(log_out.stdout)  # uses the new "ID:" line printed by tk log
+
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "認証にOIDCを採用" in result.stdout
+    assert "decision" in result.stdout
+
+
+def test_record_add_invalid_kind():
+    add_out = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(add_out.stdout)
+    log_out = runner.invoke(app, ["log", task_id, "--summary", "l"])
+    log_id = _extract_id(log_out.stdout)
+
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "garbage",
+            "--log-id",
+            log_id,
+            "--summary",
+            "S",
+        ],
+    )
+    assert result.exit_code != 0
