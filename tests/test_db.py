@@ -757,3 +757,12 @@ def test_verify_record_idempotent_update_pushes_timestamp(db: TaskDB):
 def test_verify_record_not_found(db: TaskDB):
     with pytest.raises(ValueError, match=r"Record .* not found"):
         db.verify_record("01NOTHING" + "X" * 17)
+
+
+def test_add_log_with_next_action_set_persists(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="s", next_action_set="次の手")
+    assert log.next_action_set == "次の手"
+    fetched = db.get_log(log.id)
+    assert fetched is not None
+    assert fetched.next_action_set == "次の手"

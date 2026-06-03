@@ -38,12 +38,13 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE TABLE IF NOT EXISTS progress_logs (
-    id         TEXT PRIMARY KEY,
-    task_id    TEXT NOT NULL REFERENCES tasks(id),
-    summary    TEXT NOT NULL,
-    details    TEXT,
-    remaining  TEXT,
-    created_at TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL REFERENCES tasks(id),
+    summary         TEXT NOT NULL,
+    details         TEXT,
+    remaining       TEXT,
+    next_action_set TEXT,
+    created_at      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS records (
@@ -69,6 +70,7 @@ _MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE tasks ADD COLUMN source_id TEXT",
     "ALTER TABLE tasks ADD COLUMN source TEXT",
+    "ALTER TABLE progress_logs ADD COLUMN next_action_set TEXT",
 ]
 
 
@@ -681,19 +683,27 @@ class TaskDB:
         summary: str,
         details: str | None = None,
         remaining: str | None = None,
+        next_action_set: str | None = None,
     ) -> ProgressLog:
         """Add a progress log entry."""
         log = ProgressLog.new(
-            task_id=task_id, summary=summary, details=details, remaining=remaining
+            task_id=task_id,
+            summary=summary,
+            details=details,
+            remaining=remaining,
+            next_action_set=next_action_set,
         )
         self._conn.execute(
-            "INSERT INTO progress_logs (id, task_id, summary, details, remaining, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO progress_logs "
+            "(id, task_id, summary, details, remaining, next_action_set, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 log.id,
                 log.task_id,
                 log.summary,
                 log.details,
                 log.remaining,
+                log.next_action_set,
                 log.created_at,
             ),
         )
@@ -703,7 +713,8 @@ class TaskDB:
     def get_logs(self, task_id: str) -> list[ProgressLog]:
         """Get progress logs for a task."""
         rows = self._conn.execute(
-            "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
+            "SELECT id, task_id, summary, details, remaining, next_action_set, created_at "
+            "FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
             (task_id,),
         ).fetchall()
         return [self._row_to_log(r) for r in rows]
@@ -717,13 +728,15 @@ class TaskDB:
             summary=r[2],
             details=r[3],
             remaining=r[4],
-            created_at=r[5],
+            next_action_set=r[5],
+            created_at=r[6],
         )
 
     def get_log(self, log_id: str) -> ProgressLog | None:
         """Get a progress log by ID."""
         row = self._conn.execute(
-            "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE id = ?",
+            "SELECT id, task_id, summary, details, remaining, next_action_set, created_at "
+            "FROM progress_logs WHERE id = ?",
             (log_id,),
         ).fetchone()
         if row is None:

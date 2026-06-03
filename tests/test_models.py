@@ -107,3 +107,10 @@ def test_record_status_values():
     assert RecordStatus.SUPERSEDED.value == "superseded"
     assert RecordStatus.OBSOLETE.value == "obsolete"
     assert RecordStatus.RESOLVED.value == "resolved"
+
+
+def test_progress_log_next_action_set_optional():
+    log = ProgressLog.new(task_id="01TASK", summary="s")
+    assert log.next_action_set is None
+    log2 = ProgressLog.new(task_id="01TASK", summary="s", next_action_set="次はテスト")
+    assert log2.next_action_set == "次はテスト"

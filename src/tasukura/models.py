@@ -69,6 +69,7 @@ class ProgressLog:
     summary: str
     details: str | None
     remaining: str | None
+    next_action_set: str | None
     created_at: str
 
     @classmethod
@@ -78,6 +79,7 @@ class ProgressLog:
         summary: str,
         details: str | None = None,
         remaining: str | None = None,
+        next_action_set: str | None = None,
     ) -> "ProgressLog":
         """Create a new progress log entry."""
         return cls(
@@ -86,6 +88,7 @@ class ProgressLog:
             summary=summary,
             details=details,
             remaining=remaining,
+            next_action_set=next_action_set,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
