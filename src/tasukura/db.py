@@ -455,10 +455,10 @@ class TaskDB:
             ValueError: If task_id or source_log_id is unknown.
         """
         if self.get_task(task_id) is None:
-            msg = f"Task not found: {task_id}"
+            msg = f"Task {task_id} not found"
             raise ValueError(msg)
         if self.get_log(source_log_id) is None:
-            msg = f"Log not found: {source_log_id}"
+            msg = f"Log {source_log_id} not found"
             raise ValueError(msg)
         record = Record.new(
             task_id=task_id,

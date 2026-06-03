@@ -4,7 +4,7 @@ import tempfile
 import pytest
 
 from tasukura.db import TaskDB
-from tasukura.models import TaskStatus
+from tasukura.models import RecordKind, RecordStatus, TaskStatus
 
 
 @pytest.fixture
@@ -393,8 +393,6 @@ def test_add_record_minimal(db: TaskDB):
     """最小フィールドだけで record を作成できる."""
     task = db.add_task("T1", description="desc")
     log = db.add_log(task.id, summary="log summary")
-    from tasukura.models import RecordKind, RecordStatus
-
     rec = db.add_record(
         task_id=task.id,
         kind=RecordKind.DECISION,
@@ -413,8 +411,6 @@ def test_add_record_minimal(db: TaskDB):
 def test_add_record_with_details(db: TaskDB):
     task = db.add_task("T1", description="desc")
     log = db.add_log(task.id, summary="log")
-    from tasukura.models import RecordKind
-
     rec = db.add_record(
         task_id=task.id,
         kind=RecordKind.FINDING,
@@ -428,9 +424,7 @@ def test_add_record_with_details(db: TaskDB):
 def test_add_record_rejects_missing_log(db: TaskDB):
     """存在しない source_log_id では作成できない."""
     task = db.add_task("T1", description="desc")
-    from tasukura.models import RecordKind
-
-    with pytest.raises(ValueError, match="Log not found"):
+    with pytest.raises(ValueError, match=r"Log .* not found"):
         db.add_record(
             task_id=task.id,
             kind=RecordKind.DECISION,
@@ -443,9 +437,7 @@ def test_add_record_rejects_missing_task(db: TaskDB):
     """存在しない task_id では作成できない."""
     task = db.add_task("T1", description="desc")
     log = db.add_log(task.id, summary="log")
-    from tasukura.models import RecordKind
-
-    with pytest.raises(ValueError, match="Task not found"):
+    with pytest.raises(ValueError, match=r"Task .* not found"):
         db.add_record(
             task_id="01NONEXISTENT" + "A" * 13,
             kind=RecordKind.DECISION,
