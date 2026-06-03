@@ -195,35 +195,27 @@ def _print_task_tree(tasks: list[Task]) -> None:
 def update(
     task_id: str,
     title: Annotated[Optional[str], typer.Option(help="Task title")] = None,
-    description: Annotated[
-        Optional[str], typer.Option(help="Goal, acceptance criteria, and background")
-    ] = None,
     source_id: Annotated[Optional[str], typer.Option(help="External source ID")] = None,
     source: Annotated[Optional[str], typer.Option(help="Source type")] = None,
-    next_action: Annotated[
-        Optional[str], typer.Option(help="Next action to take")
-    ] = None,
 ) -> None:
-    """Update task fields."""
+    """Update task title or external source linkage.
+
+    For ``next_action`` or ``description`` changes, use ``tk log --next-action ...``
+    or ``tk log --description ...`` — that path keeps the change as a log entry.
+    """
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         task = db.update_task(
             resolved_id,
             title=title,
-            description=description,
             source_id=source_id,
             source=source,
-            next_action=next_action,
         )
     typer.echo(f"Updated: {_short_id(task.id)}  {task.title}")
-    if description is not None:
-        typer.echo(f"  description: {task.description}")
     if source_id is not None:
         typer.echo(f"  source_id: {task.source_id}")
     if source is not None:
         typer.echo(f"  source: {task.source}")
-    if next_action is not None:
-        typer.echo(f"  next: {task.next_action}")
 
 
 @app.command()

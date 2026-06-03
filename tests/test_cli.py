@@ -119,20 +119,27 @@ def test_status_change():
     assert "in_progress" in result.stdout
 
 
-def test_update_task():
-    result = runner.invoke(app, ["add", "タスク", "--description", "元の説明"])
+def test_update_task_title_still_works():
+    result = runner.invoke(app, ["add", "before", "--description", "d"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["update", task_id, "--description", "新しい説明"])
+    result = runner.invoke(app, ["update", task_id, "--title", "after"])
     assert result.exit_code == 0
-    assert "新しい説明" in result.stdout
+    assert "after" in result.stdout
 
 
-def test_update_next_action():
-    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+def test_update_next_action_flag_removed():
+    """--next-action は tk update から削除済み."""
+    result = runner.invoke(app, ["add", "T1", "--description", "d"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["update", task_id, "--next-action", "次のアクション"])
-    assert result.exit_code == 0
-    assert "次のアクション" in result.stdout
+    result = runner.invoke(app, ["update", task_id, "--next-action", "blocked"])
+    assert result.exit_code != 0
+
+
+def test_update_description_flag_removed():
+    result = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(result.stdout)
+    result = runner.invoke(app, ["update", task_id, "--description", "blocked"])
+    assert result.exit_code != 0
 
 
 def test_log_progress():
