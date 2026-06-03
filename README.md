@@ -70,6 +70,7 @@ tk list --source jira
 | `tk record resolve` | Mark a blocker record as resolved |
 | `tk record obsolete` | Mark a record as obsolete (no replacement) |
 | `tk record verify` | Mark a record as verified (update last_verified_at) |
+| `tk record delete` | Permanently delete a mistaken record (prefer `obsolete` for valid records) |
 | `tk rank` | Change display order |
 | `tk board` | Kanban board view |
 | `tk show` | Show task details, active records grouped by kind, and recent logs. `--full` / `--kind X` / `--logs N` to vary |

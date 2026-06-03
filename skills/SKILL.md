@@ -9,7 +9,7 @@ description: >
 # tk - Local Task Management
 
 Local SQLite-based task management CLI designed for AI coding agents. Two-layer memory
-model: progress_logs (raw timeseries) + typed records (extracted knowledge).
+model: `progress_logs` (raw timeseries) + typed `records` (extracted knowledge).
 
 ## Execution (Strict)
 
@@ -22,7 +22,7 @@ Always execute the `tk` command directly. `tk` is registered in PATH; do NOT use
 |---------|-------------|
 | `tk add "Title" --description "..." [--source-id ID] [--source TYPE] [--parent ID] [--next-action "..."] [--top] [--after ID]` | Add a task (description required) |
 | `tk list [--status todo,in_progress] [--source TYPE] [--flat]` | List tasks (tree by default) |
-| `tk update <id> [--title "..."] [--source-id ID] [--source TYPE]` | Update title or external source linkage. For next_action / description, use `tk log` |
+| `tk update <id> [--title "..."] [--source-id ID] [--source TYPE]` | Update title or external source linkage. For `next_action` / `description`, use `tk log` |
 | `tk delete <id>` | Delete task (fails cleanly if records exist) |
 | `tk status <id> <new_status>` | Change status (todo/in_progress/in_review/done) |
 | `tk log <id> --summary "..." [--details "..."] [--remaining "..."] [--next-action "..."] [--description "..."]` | Record progress. `--next-action` updates task and is persisted as `next_action_set` on the log (history). `--description` updates task only |
@@ -31,10 +31,11 @@ Always execute the `tk` command directly. `tk` is registered in PATH; do NOT use
 | `tk record add <task_id> --kind <decision\|finding\|blocker\|question\|hypothesis> --log-id <log_id> --summary "..." [--details "..."] [--supersedes <record_id>]` | Add a typed record extracted from a log |
 | `tk record list <task_id> [--kind X] [--all]` | List records (active by default) |
 | `tk record show <record_id> [--with-log]` | Show record; `--with-log` dereferences source log |
-| `tk record update <record_id> [--summary "..."] [--details "..."]` | Typo / 補足 only |
+| `tk record update <record_id> [--summary "..."] [--details "..."]` | Typo / wording fix only |
 | `tk record resolve <blocker_id>` | Mark blocker resolved |
 | `tk record obsolete <id>` | Retire a record without replacement |
-| `tk record verify <id>` | Update last_verified_at (re-confirmed valid) |
+| `tk record verify <id>` | Update `last_verified_at` (re-confirmed valid) |
+| `tk record delete <id>` | Permanently delete a mistaken record. For valid records, prefer `obsolete` |
 | `tk rank <id> [--after ID]` | Reorder |
 | `tk board [--status ...]` | Kanban view |
 | `tk show <id> [--full] [--kind X] [--logs N]` | Active context view |
@@ -44,98 +45,105 @@ IDs accept prefix matches (12-char short IDs displayed).
 ## Two-Layer Memory Model
 
 ```
-progress_logs   <- 時系列の raw trace (経緯・調査過程・議論・代替案)
-   │
-   │ 抽出・要約 (--log-id で明示昇格)
-   ▼
-records         <- typed memory (結論・根拠・スコープのみ)
-   │
-   │ 自動絞り込み (status/freshness/threshold)
-   ▼
-tk show         <- active context (LLM が毎ターン読む対象)
+progress_logs   <- raw timeseries trace (process, investigation, discussion, alternatives)
+   |
+   | extract & summarize (promote with --log-id)
+   v
+records         <- typed memory (conclusion, rationale, scope only)
+   |
+   | automatic narrowing (status / freshness / threshold)
+   v
+tk show         <- active context (read by the LLM every turn)
 ```
 
 **Cardinality rule of thumb:** Most logs do **not** become records. Records are for facts
 an agent should re-read in future sessions.
 
-## When to use what
+## When to Use What
 
-### tk log (常に書く)
+### `tk log` (always write)
 
-- Commit のたび
-- 進捗の節目
-- 設計議論を「経緯」として言語化する瞬間
-- ブロッカーの発生・解消
-- 失敗した試行 (`attempt`) — record には上げない
-- 詳しい経緯は `--details` へ。これが後で record の raw evidence になる
+- On every commit
+- At every meaningful progress milestone
+- When verbalizing a design discussion as "the process"
+- When a blocker appears or is resolved
+- For failed attempts — do NOT promote these to records
+- Put the full process into `--details`. This becomes the raw evidence for any future record.
 
-### tk record add (昇格判断したときだけ)
+### `tk record add` (only when promoting)
 
-| kind | 適用 |
-|------|------|
-| `decision` | 設計・方針・制約が確定したとき |
-| `finding` | 調査・検証で**事実**が判明したとき |
-| `blocker` | 障害として将来再参照される見込みがあるとき |
-| `question` | 未確定だが**明示的に**追跡したい論点 |
-| `hypothesis` | 「Xだろう」と仮置きで動いている、未検証 |
+| kind | When to use |
+|------|-------------|
+| `decision` | A design choice, policy, or constraint has been finalized |
+| `finding` | An investigation or experiment confirmed a **fact** |
+| `blocker` | A blocker that future work may need to reference |
+| `question` | An open issue you want to track **explicitly** even though unresolved |
+| `hypothesis` | A "probably X" assumption you're operating on but haven't verified |
 
-**手順:**
+**Procedure:**
 
-1. `tk record list <task_id> --kind <X>` で既存 active を確認 (dedup責任)
-2. 重複なら supersede: `tk record add ... --supersedes <old_id>` (旧は自動 superseded)
-3. 重複なしならそのまま `tk record add ... --log-id <log_id>`
+1. `tk record list <task_id> --kind <X>` to see existing active records (dedup responsibility)
+2. If a duplicate exists, supersede it: `tk record add ... --supersedes <old_id>` (old is auto-marked superseded)
+3. Otherwise just `tk record add ... --log-id <log_id>`
 
-`--log-id` は **必須**。昇格制 (raw → typed) を強制し、root cause 不明の record を防ぐ。
+`--log-id` is **required**. This enforces the promotion gate (raw → typed) and prevents
+"orphan records" whose root cause cannot be traced.
 
-### record の内容ガイドライン (抽出・要約)
+### Record content guideline (extract, do not copy)
 
-研究文書 (Memori の semantic triples、From Storage to Experience の trajectory abstraction)
-のプラクティス。record は raw のコピーではなく、**結論を抽出した typed memory**。
+Following the research literature (Memori semantic triples, "From Storage to Experience"
+trajectory abstraction): a record is not a copy of the raw log — it is the **conclusion
+extracted** from it.
 
-| フィールド | 書く | 書かない |
-|------------|------|---------|
-| `record.summary` | 結論を1行 (「採用した」「判明した」「起きた」) | 経緯、代替案 |
-| `record.details` | 結論の本質的根拠 / スコープ / 制約 / 再検討トリガー | 経緯、調査過程、却下した代替案 |
-| `log.summary` | その瞬間の活動を1行 | — |
-| `log.details` | 経緯・調査過程・議論・代替案 (raw evidence) | — |
+| Field | Put here | Do not put here |
+|-------|----------|-----------------|
+| `record.summary` | The conclusion in one line ("we adopted X", "X is broken", "X happened") | Process, alternatives considered |
+| `record.details` | Essential rationale, scope, constraints, reconsideration triggers | Process, investigation steps, rejected alternatives |
+| `log.summary` | One line summarizing the activity | — |
+| `log.details` | Process, investigation, discussion, alternatives (raw evidence) | — |
 
-**Bad (log を record にコピー):**
-
-```
-log.details   = "OIDC/Auth0/自前を比較。OIDC: 標準準拠、メンテコスト中。Auth0: SaaS、コスト高。自前: 学習コスト高。結論: OIDC"
-record.details = "OIDC/Auth0/自前を比較。OIDC: 標準準拠..."   ← log の丸ごとコピー
-```
-
-**Good (結論を抽出):**
+**Bad (record is a copy of the log):**
 
 ```
-log.details   = "<上と同じ経緯>"
-record.summary = "認証にOIDCを採用"
-record.details = "判断軸: メンテコストと標準化のバランス、ロックイン回避
-                  スコープ: 認証関連の全モジュール
-                  再検討トリガー: SaaS切替を検討する場合"
+log.details   = "Compared OIDC / Auth0 / self-hosted. OIDC: standards-compliant, medium maintenance.
+                 Auth0: SaaS, expensive. Self-hosted: high learning cost. Conclusion: OIDC."
+record.details = "Compared OIDC / Auth0 / self-hosted. OIDC: standards-compliant ..."
+                     ^^^^ verbatim copy of the log
 ```
 
-経緯を後で見たいときは `tk record show R-xxx --with-log` で source log を dereference。
+**Good (record extracts the conclusion):**
+
+```
+log.details   = "<same process as above>"
+record.summary = "Adopt OIDC for authentication"
+record.details = "Driving criteria: balance of maintenance cost and standardization;
+                  avoid vendor lock-in.
+                  Scope: all authentication-related modules.
+                  Reconsideration trigger: when migrating to a managed SaaS."
+```
+
+To see the process later, use `tk record show R-xxx --with-log` to dereference the source log.
 
 ## Lifecycle
 
 ```
 add (--supersedes <old>)
-  └─ 旧 record の status を superseded に自動 flip
-update (typo / 補足のみ)
-  └─ 意味が変わるなら必ず add --supersedes を使う
-resolve (blocker のみ)
+  └─ Old record's status is auto-flipped to 'superseded'
+update (typo / wording fix only)
+  └─ For semantic changes, always use 'add --supersedes' instead
+resolve (blocker only)
   └─ status=resolved, resolved_at=now
-obsolete (置換 record なしで現役から外す)
+obsolete (retire without replacement)
   └─ status=obsolete
-verify (内容変更なし)
-  └─ last_verified_at=now (stale警告の解除)
+verify (no content change)
+  └─ last_verified_at=now (clears the [stale] marker)
+delete (mistaken record only)
+  └─ row removed entirely. Use 'obsolete' for valid records you want to keep in history.
 ```
 
-## tk show の読み方
+## How to Read `tk show`
 
-デフォルト出力:
+Default output:
 
 ```
 Active Decisions (N):
@@ -153,12 +161,13 @@ Recent logs (5):
 ⚠ Active <kind>s (N) exceed threshold (K) — consider obsolete/supersede
 ```
 
-- **ID + summary だけ**を読み、詳細は必要時に `tk record show R-xxx` で dereference。
-- `[stale]` マーク = `last_verified_at` (なければ `created_at`) が `stale_after_days` 超
-   → `tk record verify` か `tk record obsolete` を選ぶ
-- 警告 = active set 肥大化のサイン → obsolete / supersede で整理
+- Read **ID + summary** only. Dereference details only when needed via `tk record show R-xxx`.
+- `[stale]` marker = `last_verified_at` (or `created_at` if never verified) is older than
+  `stale_after_days`. Resolve by `tk record verify` or `tk record obsolete`.
+- Warning = active set is growing. Clean up via `obsolete` / `supersede`.
 
-オプション: `--full` (inactive と全 log), `--kind <X>` (絞り込み), `--logs N` (件数変更)
+Options: `--full` (include inactive records and all logs), `--kind <X>` (filter), `--logs N`
+(change log count).
 
 ## Operation Flows
 
@@ -166,60 +175,62 @@ Recent logs (5):
 
 User intent → command mapping:
 
-- "Add a task" → `tk add` (description を一緒に確認)
+- "Add a task" → `tk add` (confirm description with the user)
 - "Start working on X" → `tk status <id> in_progress`
 - "X is ready for review" → `tk status <id> in_review`
-- "Update next action" → `tk log <id> --summary "..." --next-action "..."` (履歴も残る)
+- "Update next action" → `tk log <id> --summary "..." --next-action "..."` (history is preserved)
 - "Update description" → `tk log <id> --summary "..." --description "..."`
 - "Move X to the top" → `tk rank <id>`
 
-#### When to use in_review
+#### When to use `in_review`
 
 PR submitted / waiting on user / waiting on another team — i.e., no agent action needed.
 
 #### Adding tasks from external sources
 
-外部チケットからタスクを作るときは **必ず元情報を verbatim** で description に含める (要約しない)。
-理由: research note の Storage 層は raw を保持する原則。
+When creating a task from an external ticket, **always include the source content verbatim**
+in the description (do not summarize). Reason: the Storage layer in the research literature
+mandates preserving the raw form.
 
 ```
-1. 外部 (JIRA, GitHub) から description を取得
-2. 構造・リスト・リンクをそのまま --description に入れる
-3. 最初の手を --next-action に入れる
+1. Fetch the description from the external source (JIRA, GitHub, ...)
+2. Include structure, lists, and links verbatim in --description
+3. Put the first step in --next-action
 ```
 
 ### `/progress` — Progress logging
 
-1. `tk list --status in_progress` で active task を見つける
+1. `tk list --status in_progress` to find active tasks
 2. `tk log <id> --summary "..." --details "..."`
-3. 状態が変わるなら `tk status` / `tk log --next-action`
+3. If state changes, follow up with `tk status` / `tk log --next-action`
 
 ### Proactive logging
 
-ユーザー指示なしで自動で書くタイミング:
+When to write without an explicit user instruction:
 
-| タイミング | log | record |
-|------------|-----|--------|
-| コミット時 | ✅ `tk log` | ❌ (区切り commit でなければ) |
-| 設計判断が確定 | ✅ 経緯を `--details` に | ✅ `tk record add --kind decision --log-id <log>` |
-| 調査が確定 (finding) | ✅ 経緯 | ✅ `--kind finding` |
-| ブロッカー発生 | ✅ 発生状況 | ✅ (将来再参照されるなら) `--kind blocker` |
-| ブロッカー解消 | ✅ 解消経緯 | ✅ `tk record resolve <blocker_id>` |
-| 失敗した試行 | ✅ | ❌ (attempt は records に上げない) |
+| Trigger | log | record |
+|---------|-----|--------|
+| On commit | ✅ `tk log` | ❌ (unless this commit is a milestone) |
+| Design decision finalized | ✅ process in `--details` | ✅ `tk record add --kind decision --log-id <log>` |
+| Investigation confirmed | ✅ process | ✅ `--kind finding` |
+| Blocker appears | ✅ situation | ✅ (if future reference is likely) `--kind blocker` |
+| Blocker resolved | ✅ resolution process | ✅ `tk record resolve <blocker_id>` |
+| Failed attempt | ✅ | ❌ (attempts do not get promoted to records) |
 
-**判断順序**: log を書く → 「これは将来再参照する価値があるか?」 → Yes なら record に昇格。
+**Decision order**: always write the log first → ask "is this worth re-reading next session?"
+→ if yes, promote it to a record.
 
-### Stale 対応
+### Handling `[stale]`
 
-`[stale]` マークを見たら:
+When you see a `[stale]` marker:
 
-1. `tk record show R-xxx` で内容確認 (必要なら `--with-log` で経緯も)
-2. **今も有効** → `tk record verify R-xxx`
-3. **古くなって無効** → `tk record obsolete R-xxx`
-4. **新しい判断に置き換える** → `tk log` で経緯 → `tk record add --supersedes R-xxx ...`
+1. `tk record show R-xxx` to inspect (add `--with-log` for the original process if needed)
+2. **Still valid** → `tk record verify R-xxx`
+3. **Outdated, no replacement** → `tk record obsolete R-xxx`
+4. **Replacing with a new decision** → `tk log` for the process → `tk record add --supersedes R-xxx ...`
 
-連続 update で typed memory を壊さない (研究文書: "useful memories become faulty when
-continuously updated") — 内容変更は必ず supersede で。
+Do not destroy typed memory through continuous updates (research: "useful memories become
+faulty when continuously updated"). For semantic changes, always use supersede.
 
 ## Configuration
 
@@ -242,4 +253,4 @@ question = 10                  # default
 hypothesis = 10                # default
 ```
 
-Environment overrides: `TK_DB_PATH` (db path), `TK_CONFIG_PATH` (config file).
+Environment overrides: `TK_DB_PATH` (database path), `TK_CONFIG_PATH` (config file path).
