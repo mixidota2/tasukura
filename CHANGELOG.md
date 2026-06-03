@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.6...tasukura-v0.1.7) (2026-06-03)
+
+
+### Features
+
+* Add typed records (P1 of context-pollution overhaul) ([#19](https://github.com/mixidota2/tasukura/issues/19)) ([db8e833](https://github.com/mixidota2/tasukura/commit/db8e83314d81aeaf846187135cbfc6436a215587))
+* Typed records P2-P6 (lifecycle + show overhaul + config + skill) ([#21](https://github.com/mixidota2/tasukura/issues/21)) ([8ce6ff0](https://github.com/mixidota2/tasukura/commit/8ce6ff03d88e89b4f170f2e53ab8f4df3261da08))
+
 ## [0.1.6](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.5...tasukura-v0.1.6) (2026-05-08)
 
 
