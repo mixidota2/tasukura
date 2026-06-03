@@ -43,16 +43,6 @@ def _short_id(task_id: str) -> str:
     return task_id[:12]
 
 
-_STALE_AFTER_DAYS_DEFAULT = 30
-_ACTIVE_WARN_DEFAULTS = {
-    "decision": 10,
-    "blocker": 3,
-    "finding": 10,
-    "question": 10,
-    "hypothesis": 10,
-}
-
-
 def _is_stale(record: Record, stale_after_days: int) -> bool:
     """Return True if the record's freshness reference timestamp is older than threshold.
 
@@ -379,6 +369,7 @@ def show(
 ) -> None:
     """Show task details, active records, and recent logs."""
     parsed_kind = _parse_record_kind(kind) if kind else None
+    config = _get_config()
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         task = db.get_task(resolved_id)
@@ -411,7 +402,12 @@ def show(
         for child in child_tasks:
             _print_task_line(child, "  ")
 
-    _print_record_sections(records, parsed_kind)
+    _print_record_sections(
+        records,
+        parsed_kind,
+        stale_after_days=config.stale_after_days,
+        active_warn=config.active_warn_thresholds,
+    )
     log_limit = len(all_logs) if full else logs
     _print_recent_logs(all_logs, log_limit)
 
@@ -428,6 +424,8 @@ _RECORD_SECTIONS = [
 def _print_record_sections(
     records: list[Record],
     kind_filter: RecordKind | None,
+    stale_after_days: int,
+    active_warn: dict[str, int],
 ) -> None:
     """Print the grouped active-records view + threshold warnings."""
     by_kind: dict[RecordKind, list[Record]] = {k: [] for k, _, _ in _RECORD_SECTIONS}
@@ -447,8 +445,7 @@ def _print_record_sections(
         for r in rows:
             stale_tag = (
                 " [stale]"
-                if r.status == RecordStatus.ACTIVE
-                and _is_stale(r, _STALE_AFTER_DAYS_DEFAULT)
+                if r.status == RecordStatus.ACTIVE and _is_stale(r, stale_after_days)
                 else ""
             )
             status_tag = (
@@ -457,7 +454,7 @@ def _print_record_sections(
             typer.echo(f"  {_short_id(r.id)}  {r.summary}{stale_tag}{status_tag}")
 
         active_count = sum(1 for r in rows if r.status == RecordStatus.ACTIVE)
-        threshold = _ACTIVE_WARN_DEFAULTS.get(kind.value, 0)
+        threshold = active_warn.get(kind.value, 0)
         if threshold and active_count > threshold:
             overflow_warnings.append(
                 f"⚠ Active {kind.value}s ({active_count}) exceed threshold ({threshold})"

@@ -1260,3 +1260,45 @@ def test_log_description_updates_task():
     show = runner.invoke(app, ["show", task_id]).stdout
     assert "updated-desc" in show
     assert "initial-desc" not in show
+
+
+def test_show_uses_configured_stale_threshold(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """config の stale_after_days を 5 にすると 10 日経過の record が [stale]."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    from datetime import timezone as _tz
+
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("[record]\nstale_after_days = 5\n")
+    monkeypatch.setenv("TK_CONFIG_PATH", str(cfg))
+    cli_module._config = None
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "config-test",
+        ],
+    )
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    past = (datetime.now(_tz.utc) - timedelta(days=10)).isoformat()
+    conn.execute("UPDATE records SET created_at = ?, last_verified_at = NULL", (past,))
+    conn.commit()
+    conn.close()
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "config-test" in out
+    assert "[stale]" in out
