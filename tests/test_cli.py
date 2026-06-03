@@ -1302,3 +1302,46 @@ def test_show_uses_configured_stale_threshold(
     out = runner.invoke(app, ["show", task_id]).stdout
     assert "config-test" in out
     assert "[stale]" in out
+
+
+def test_record_show_with_log_dereferences_evidence():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "log",
+                task_id,
+                "--summary",
+                "log-summary-line",
+                "--details",
+                "log-details-body",
+            ],
+        ).stdout
+    )
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "rec-summary",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+
+    plain = runner.invoke(app, ["record", "show", rec_id]).stdout
+    assert "rec-summary" in plain
+    assert "log-summary-line" not in plain
+    assert "log-details-body" not in plain
+
+    with_log = runner.invoke(app, ["record", "show", rec_id, "--with-log"]).stdout
+    assert "log-summary-line" in with_log
+    assert "log-details-body" in with_log

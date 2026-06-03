@@ -667,14 +667,24 @@ def record_list(
 
 
 @record_app.command("show")
-def record_show(record_id: str) -> None:
-    """Show a record's full details."""
+def record_show(
+    record_id: str,
+    with_log: Annotated[
+        bool,
+        typer.Option(
+            "--with-log",
+            help="Also dereference source_log_id and show that progress log's content.",
+        ),
+    ] = False,
+) -> None:
+    """Show a record's full details. ``--with-log`` includes the raw evidence log."""
     with _get_db() as db:
         resolved_id = _resolve_record_id(db, record_id)
         record = db.get_record(resolved_id)
         if record is None:
             typer.echo(f"Record {record_id} not found")
             raise typer.Exit(1)
+        source_log = db.get_log(record.source_log_id) if with_log else None
     typer.echo(f"ID: {record.id}")
     typer.echo(f"  task_id: {_short_id(record.task_id)}")
     typer.echo(f"  kind: {record.kind.value}")
@@ -691,6 +701,18 @@ def record_show(record_id: str) -> None:
         typer.echo(f"  last_verified_at: {record.last_verified_at}")
     typer.echo(f"  created: {record.created_at}")
     typer.echo(f"  updated: {record.updated_at}")
+    if with_log and source_log is not None:
+        typer.echo("")
+        typer.echo("Source log:")
+        typer.echo(f"  ID: {source_log.id}")
+        typer.echo(f"  summary: {source_log.summary}")
+        if source_log.details:
+            typer.echo(f"  details: {source_log.details}")
+        if source_log.remaining:
+            typer.echo(f"  remaining: {source_log.remaining}")
+        if source_log.next_action_set:
+            typer.echo(f"  next_action_set: {source_log.next_action_set}")
+        typer.echo(f"  created: {source_log.created_at}")
 
 
 @record_app.command("update")
