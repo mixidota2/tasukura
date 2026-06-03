@@ -688,3 +688,39 @@ def test_resolve_record_non_blocker_raises(db: TaskDB):
 def test_resolve_record_not_found(db: TaskDB):
     with pytest.raises(ValueError, match=r"Record .* not found"):
         db.resolve_record("01NOTHING" + "X" * 17)
+
+
+def test_obsolete_record_sets_status(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    out = db.obsolete_record(rec.id)
+    assert out.status == RecordStatus.OBSOLETE
+    assert out.updated_at >= rec.updated_at
+
+
+def test_obsolete_record_excluded_from_default_list(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    keep = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="keep",
+    )
+    drop = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="drop",
+    )
+    db.obsolete_record(drop.id)
+    active = db.list_records(task_id=task.id)
+    assert [r.id for r in active] == [keep.id]
+
+
+def test_obsolete_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.obsolete_record("01NOTHING" + "X" * 17)

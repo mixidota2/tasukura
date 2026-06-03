@@ -614,6 +614,19 @@ def record_resolve(record_id: str) -> None:
     typer.echo(f"  resolved_at: {record.resolved_at}")
 
 
+@record_app.command("obsolete")
+def record_obsolete(record_id: str) -> None:
+    """Mark a record as obsolete (no longer active, no replacement)."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.obsolete_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Obsoleted: {_short_id(record.id)}  {record.summary}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:

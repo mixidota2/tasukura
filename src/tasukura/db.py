@@ -630,6 +630,28 @@ class TaskDB:
             raise RuntimeError(msg)
         return updated
 
+    def obsolete_record(self, record_id: str) -> Record:
+        """Mark a record as obsolete (removed from active, no replacement).
+
+        Raises:
+            ValueError: If record is not found.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE records SET status = ?, updated_at = ? WHERE id = ?",
+            (RecordStatus.OBSOLETE.value, now, record_id),
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after obsolete"
+            raise RuntimeError(msg)
+        return updated
+
     def add_log(
         self,
         task_id: str,

@@ -919,3 +919,37 @@ def test_record_resolve_non_blocker_via_cli():
     result = runner.invoke(app, ["record", "resolve", rec_id])
     assert result.exit_code != 0
     assert "Only blocker" in result.stdout
+
+
+def test_record_obsolete_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "obs-target",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "obsolete", rec_id])
+    assert result.exit_code == 0, result.stdout
+    list_default = runner.invoke(app, ["record", "list", task_id])
+    assert "obs-target" not in list_default.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "obs-target" in list_all.stdout
+    assert "[obsolete]" in list_all.stdout
+
+
+def test_record_obsolete_not_found():
+    result = runner.invoke(app, ["record", "obsolete", "01ZZZZZZ"])
+    assert result.exit_code != 0
