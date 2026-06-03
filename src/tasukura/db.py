@@ -458,17 +458,20 @@ class TaskDB:
                 Must exist. This is the promotion gate from raw to typed.
             summary: Extracted conclusion (one line).
             details: Extracted rationale, scope, constraints. Not raw transcript.
-            supersedes: ID of an older record this one replaces.
-                The older record's status will be set to 'superseded' in Phase 2.
+            supersedes: ID of an older record this one replaces. If given,
+                the older record's status is set to 'superseded' atomically.
 
         Raises:
-            ValueError: If task_id or source_log_id is unknown.
+            ValueError: If task_id, source_log_id, or supersedes is unknown.
         """
         if self.get_task(task_id) is None:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
         if self.get_log(source_log_id) is None:
             msg = f"Log {source_log_id} not found"
+            raise ValueError(msg)
+        if supersedes is not None and self.get_record(supersedes) is None:
+            msg = f"Record {supersedes} not found"
             raise ValueError(msg)
         record = Record.new(
             task_id=task_id,
@@ -496,6 +499,11 @@ class TaskDB:
                 record.updated_at,
             ),
         )
+        if supersedes is not None:
+            self._conn.execute(
+                "UPDATE records SET status = ?, updated_at = ? WHERE id = ?",
+                (RecordStatus.SUPERSEDED.value, record.created_at, supersedes),
+            )
         self._conn.commit()
         return record
 

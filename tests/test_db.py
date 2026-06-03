@@ -560,3 +560,41 @@ def test_delete_log_referenced_by_record_raises(db: TaskDB):
         ValueError, match=r"Cannot delete log .* referenced by a record"
     ):
         db.delete_log(log.id)
+
+
+def test_add_record_supersedes_flips_old_status(db: TaskDB):
+    """新しい record が指定した旧 record を superseded にする."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    old = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="認証にOIDC",
+    )
+    new = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="認証にAuth0",
+        supersedes=old.id,
+    )
+    assert new.supersedes == old.id
+    assert new.status == RecordStatus.ACTIVE
+    refetched_old = db.get_record(old.id)
+    assert refetched_old is not None
+    assert refetched_old.status == RecordStatus.SUPERSEDED
+
+
+def test_add_record_supersedes_unknown_raises(db: TaskDB):
+    """存在しない supersedes ID では失敗する."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.add_record(
+            task_id=task.id,
+            kind=RecordKind.DECISION,
+            source_log_id=log.id,
+            summary="新",
+            supersedes="01NONEXISTENT" + "A" * 13,
+        )

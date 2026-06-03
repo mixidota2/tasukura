@@ -720,3 +720,88 @@ def test_cli_delete_log_referenced_by_record_clean_error():
     assert result.exit_code != 0
     assert "Cannot delete log" in result.stdout
     assert "Traceback" not in result.stdout
+
+
+def test_record_add_with_supersedes_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "old-decision",
+        ],
+    )
+    old_id = _extract_id(old_out.stdout)
+    new_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "new-decision",
+            "--supersedes",
+            old_id,
+        ],
+    )
+    assert new_out.exit_code == 0, new_out.stdout
+    list_out = runner.invoke(app, ["record", "list", task_id])
+    assert "new-decision" in list_out.stdout
+    assert "old-decision" not in list_out.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "old-decision" in list_all.stdout
+    assert "[superseded]" in list_all.stdout
+
+
+def test_record_add_supersedes_partial_id():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "p-old",
+            ],
+        ).stdout
+    )
+    new_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "p-new",
+            "--supersedes",
+            old_id[:8],
+        ],
+    )
+    assert new_out.exit_code == 0

@@ -483,12 +483,20 @@ def record_add(
     details: Annotated[
         Optional[str], typer.Option(help="Rationale, scope, constraints")
     ] = None,
+    supersedes: Annotated[
+        Optional[str],
+        typer.Option(
+            "--supersedes",
+            help="ID of an older record this one replaces (will be marked superseded)",
+        ),
+    ] = None,
 ) -> None:
     """Add a typed record promoted from a progress log."""
     parsed_kind = _parse_record_kind(kind)
     with _get_db() as db:
         resolved_task_id = _resolve_id(db, task_id)
         resolved_log_id = _resolve_log_id(db, log_id)
+        resolved_supersedes = _resolve_record_id(db, supersedes) if supersedes else None
         try:
             record = db.add_record(
                 task_id=resolved_task_id,
@@ -496,6 +504,7 @@ def record_add(
                 source_log_id=resolved_log_id,
                 summary=summary,
                 details=details,
+                supersedes=resolved_supersedes,
             )
         except ValueError as e:
             typer.echo(str(e))
@@ -507,6 +516,8 @@ def record_add(
     if record.details:
         typer.echo(f"  details: {record.details}")
     typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+    if record.supersedes:
+        typer.echo(f"  supersedes: {_short_id(record.supersedes)}")
 
 
 @record_app.command("list")
