@@ -1144,3 +1144,64 @@ def test_show_full_includes_inactive_records():
     full_out = runner.invoke(app, ["show", task_id, "--full"]).stdout
     assert "to-be-obsoleted" in full_out
     assert "[obsolete]" in full_out
+
+
+def test_show_stale_marker_for_old_record():
+    """30日以上前に作成され、verify されていないactive record には [stale] が付く."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    from datetime import timezone as _tz
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "old-dec",
+        ],
+    )
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    past = (datetime.now(_tz.utc) - timedelta(days=60)).isoformat()
+    conn.execute("UPDATE records SET created_at = ?, last_verified_at = NULL", (past,))
+    conn.commit()
+    conn.close()
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "old-dec" in out
+    assert "[stale]" in out
+
+
+def test_show_active_count_warning():
+    """blocker のデフォルト閾値 3 を超えると警告."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    for i in range(4):
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "blocker",
+                "--log-id",
+                log_id,
+                "--summary",
+                f"blocker-{i}",
+            ],
+        )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active blockers" in out or "Active Blockers" in out
+    assert "exceed threshold" in out
