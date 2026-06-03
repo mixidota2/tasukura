@@ -119,20 +119,27 @@ def test_status_change():
     assert "in_progress" in result.stdout
 
 
-def test_update_task():
-    result = runner.invoke(app, ["add", "タスク", "--description", "元の説明"])
+def test_update_task_title_still_works():
+    result = runner.invoke(app, ["add", "before", "--description", "d"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["update", task_id, "--description", "新しい説明"])
+    result = runner.invoke(app, ["update", task_id, "--title", "after"])
     assert result.exit_code == 0
-    assert "新しい説明" in result.stdout
+    assert "after" in result.stdout
 
 
-def test_update_next_action():
-    result = runner.invoke(app, ["add", "タスク", "--description", "説明"])
+def test_update_next_action_flag_removed():
+    """--next-action は tk update から削除済み."""
+    result = runner.invoke(app, ["add", "T1", "--description", "d"])
     task_id = _extract_id(result.stdout)
-    result = runner.invoke(app, ["update", task_id, "--next-action", "次のアクション"])
-    assert result.exit_code == 0
-    assert "次のアクション" in result.stdout
+    result = runner.invoke(app, ["update", task_id, "--next-action", "blocked"])
+    assert result.exit_code != 0
+
+
+def test_update_description_flag_removed():
+    result = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(result.stdout)
+    result = runner.invoke(app, ["update", task_id, "--description", "blocked"])
+    assert result.exit_code != 0
 
 
 def test_log_progress():
@@ -429,7 +436,7 @@ def _extract_log_id(show_output: str) -> str:
     """tk showの出力から最初の短縮ログIDを抽出する."""
     in_progress = False
     for line in show_output.split("\n"):
-        if line.startswith("Progress:"):
+        if line.startswith("Recent logs"):
             in_progress = True
             continue
         if in_progress and line.startswith("  01"):
@@ -443,7 +450,7 @@ def _extract_log_id_for_summary(show_output: str, summary: str) -> str:
     """tk showの出力から指定summaryに対応する短縮ログIDを抽出する."""
     in_progress = False
     for line in show_output.split("\n"):
-        if line.startswith("Progress:"):
+        if line.startswith("Recent logs"):
             in_progress = True
             continue
         if in_progress and line.startswith("  01") and summary in line:
@@ -720,3 +727,698 @@ def test_cli_delete_log_referenced_by_record_clean_error():
     assert result.exit_code != 0
     assert "Cannot delete log" in result.stdout
     assert "Traceback" not in result.stdout
+
+
+def test_record_add_with_supersedes_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "old-decision",
+        ],
+    )
+    old_id = _extract_id(old_out.stdout)
+    new_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "new-decision",
+            "--supersedes",
+            old_id,
+        ],
+    )
+    assert new_out.exit_code == 0, new_out.stdout
+    list_out = runner.invoke(app, ["record", "list", task_id])
+    assert "new-decision" in list_out.stdout
+    assert "old-decision" not in list_out.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "old-decision" in list_all.stdout
+    assert "[superseded]" in list_all.stdout
+
+
+def test_record_add_supersedes_partial_id():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "p-old",
+            ],
+        ).stdout
+    )
+    new_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "p-new",
+            "--supersedes",
+            old_id[:8],
+        ],
+    )
+    assert new_out.exit_code == 0
+
+
+def test_record_update_summary_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "before-edit",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "update", rec_id, "--summary", "after-edit"])
+    assert result.exit_code == 0, result.stdout
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "after-edit" in show.stdout
+    assert "before-edit" not in show.stdout
+
+
+def test_record_update_clear_details():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "S",
+            "--details",
+            "initial-details",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "update", rec_id, "--details", ""])
+    assert result.exit_code == 0
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "initial-details" not in show.stdout
+
+
+def test_record_update_not_found():
+    result = runner.invoke(app, ["record", "update", "01ZZZZZZ", "--summary", "x"])
+    assert result.exit_code != 0
+
+
+def test_record_resolve_blocker_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "blocker",
+            "--log-id",
+            log_id,
+            "--summary",
+            "block-it",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "resolve", rec_id])
+    assert result.exit_code == 0, result.stdout
+    list_default = runner.invoke(app, ["record", "list", task_id])
+    assert "block-it" not in list_default.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "block-it" in list_all.stdout
+    assert "[resolved]" in list_all.stdout
+
+
+def test_record_resolve_non_blocker_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "not-blocker",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "resolve", rec_id])
+    assert result.exit_code != 0
+    assert "Only blocker" in result.stdout
+
+
+def test_record_obsolete_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "obs-target",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "obsolete", rec_id])
+    assert result.exit_code == 0, result.stdout
+    list_default = runner.invoke(app, ["record", "list", task_id])
+    assert "obs-target" not in list_default.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "obs-target" in list_all.stdout
+    assert "[obsolete]" in list_all.stdout
+
+
+def test_record_obsolete_not_found():
+    result = runner.invoke(app, ["record", "obsolete", "01ZZZZZZ"])
+    assert result.exit_code != 0
+
+
+def test_record_verify_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "v-target",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "verify", rec_id])
+    assert result.exit_code == 0, result.stdout
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "last_verified_at" in show.stdout
+
+
+def test_record_verify_not_found():
+    result = runner.invoke(app, ["record", "verify", "01ZZZZZZ"])
+    assert result.exit_code != 0
+
+
+def test_show_default_lists_active_records_by_kind():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(app, ["log", task_id, "--summary", "evidence"]).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "dec-1",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "blocker",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blk-1",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "fnd-1",
+        ],
+    )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active Decisions (1):" in out
+    assert "dec-1" in out
+    assert "Active Blockers (1):" in out
+    assert "blk-1" in out
+    assert "Open Findings (1):" in out
+    assert "fnd-1" in out
+
+
+def test_show_empty_sections_say_none():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active Decisions (0):" in out
+    assert "(none)" in out
+
+
+def test_show_recent_logs_default_5():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    for i in range(7):
+        runner.invoke(app, ["log", task_id, "--summary", f"log-{i}"])
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Recent logs (5):" in out
+    assert "log-6" in out
+    assert "log-2" in out
+    assert "log-0" not in out
+
+
+def test_show_logs_flag_overrides_count():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    for i in range(7):
+        runner.invoke(app, ["log", task_id, "--summary", f"log-{i}"])
+    out = runner.invoke(app, ["show", task_id, "--logs", "2"]).stdout
+    assert "Recent logs (2):" in out
+    assert "log-6" in out
+    assert "log-5" in out
+    assert "log-4" not in out
+
+
+def test_show_kind_filter_limits_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "dec-x",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "fnd-x",
+        ],
+    )
+    out = runner.invoke(app, ["show", task_id, "--kind", "decision"]).stdout
+    assert "dec-x" in out
+    assert "fnd-x" not in out
+
+
+def test_show_full_includes_inactive_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    rec_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "to-be-obsoleted",
+            ],
+        ).stdout
+    )
+    runner.invoke(app, ["record", "obsolete", rec_id])
+    default_out = runner.invoke(app, ["show", task_id]).stdout
+    assert "to-be-obsoleted" not in default_out
+    full_out = runner.invoke(app, ["show", task_id, "--full"]).stdout
+    assert "to-be-obsoleted" in full_out
+    assert "[obsolete]" in full_out
+
+
+def test_show_stale_marker_for_old_record():
+    """30日以上前に作成され、verify されていないactive record には [stale] が付く."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    from datetime import timezone as _tz
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "old-dec",
+        ],
+    )
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    past = (datetime.now(_tz.utc) - timedelta(days=60)).isoformat()
+    conn.execute("UPDATE records SET created_at = ?, last_verified_at = NULL", (past,))
+    conn.commit()
+    conn.close()
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "old-dec" in out
+    assert "[stale]" in out
+
+
+def test_show_active_count_warning():
+    """blocker のデフォルト閾値 3 を超えると警告."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    for i in range(4):
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "blocker",
+                "--log-id",
+                log_id,
+                "--summary",
+                f"blocker-{i}",
+            ],
+        )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active blockers" in out or "Active Blockers" in out
+    assert "exceed threshold" in out
+
+
+def test_log_next_action_recorded_on_log():
+    import sqlite3
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_out = runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "進捗",
+            "--next-action",
+            "テストを書く",
+        ],
+    )
+    assert log_out.exit_code == 0
+    log_id = _extract_id(log_out.stdout)
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT next_action_set FROM progress_logs WHERE id = ?", (log_id,)
+    ).fetchone()
+    conn.close()
+    assert row[0] == "テストを書く"
+
+
+def test_log_description_updates_task():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "initial-desc"]).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "log",
+            task_id,
+            "--summary",
+            "詳細を差し替え",
+            "--description",
+            "updated-desc",
+        ],
+    )
+    show = runner.invoke(app, ["show", task_id]).stdout
+    assert "updated-desc" in show
+    assert "initial-desc" not in show
+
+
+def test_show_uses_configured_stale_threshold(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """config の stale_after_days を 5 にすると 10 日経過の record が [stale]."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    from datetime import timezone as _tz
+
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("[record]\nstale_after_days = 5\n")
+    monkeypatch.setenv("TK_CONFIG_PATH", str(cfg))
+    cli_module._config = None
+
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "config-test",
+        ],
+    )
+    db_path = os.environ["TK_DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    past = (datetime.now(_tz.utc) - timedelta(days=10)).isoformat()
+    conn.execute("UPDATE records SET created_at = ?, last_verified_at = NULL", (past,))
+    conn.commit()
+    conn.close()
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "config-test" in out
+    assert "[stale]" in out
+
+
+def test_record_show_with_log_dereferences_evidence():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "log",
+                task_id,
+                "--summary",
+                "log-summary-line",
+                "--details",
+                "log-details-body",
+            ],
+        ).stdout
+    )
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "rec-summary",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+
+    plain = runner.invoke(app, ["record", "show", rec_id]).stdout
+    assert "rec-summary" in plain
+    assert "log-summary-line" not in plain
+    assert "log-details-body" not in plain
+
+    with_log = runner.invoke(app, ["record", "show", rec_id, "--with-log"]).stdout
+    assert "log-summary-line" in with_log
+    assert "log-details-body" in with_log
+
+
+def test_record_delete_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "del-me",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "delete", rec_id])
+    assert result.exit_code == 0, result.stdout
+    assert "Deleted record:" in result.stdout
+    assert "del-me" in result.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "del-me" not in list_all.stdout
+
+
+def test_record_delete_not_found():
+    result = runner.invoke(app, ["record", "delete", "01ZZZZZZ"])
+    assert result.exit_code != 0
+
+
+def test_record_delete_referenced_by_supersedes_rejects():
+    """supersedes で参照されている record は削除拒否."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "old",
+            ],
+        ).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "new",
+            "--supersedes",
+            old_id,
+        ],
+    )
+    result = runner.invoke(app, ["record", "delete", old_id])
+    assert result.exit_code != 0
+    assert "Cannot delete record" in result.stdout
+    assert "obsolete" in result.stdout

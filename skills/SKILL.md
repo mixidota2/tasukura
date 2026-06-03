@@ -1,148 +1,256 @@
 ---
 name: tk
 description: >
-  Local task management (tasukura). Add tasks, list, change status, and record progress.
-  Use /task for task operations, /progress for progress logging.
-  Also refer to this skill when proactively recording progress on commits or design decisions.
+  Local task management (tasukura). Two-layer memory model: progress_logs (raw timeseries)
+  and typed records (extracted knowledge). Use /task for task ops, /progress for logging.
+  Refer to this skill before recording progress, decisions, findings, or blockers.
 ---
 
 # tk - Local Task Management
 
-Local SQLite-based task management CLI designed for AI coding agents. Track tasks and record progress.
+Local SQLite-based task management CLI designed for AI coding agents. Two-layer memory
+model: `progress_logs` (raw timeseries) + typed `records` (extracted knowledge).
 
 ## Execution (Strict)
 
-**Always execute the `tk` command directly.**
-
-```
-# Correct (only this is allowed)
-tk show <id>
-tk list
-tk add "Title" --description "..."
-
-# Forbidden (never do this)
-python -m tk ...
-uv run tk ...
-python tools/tk/main.py ...
-```
-
-`tk` is a CLI command registered in PATH. Execution via `python -m`, `uv run`, or `python` is strictly prohibited.
+Always execute the `tk` command directly. `tk` is registered in PATH; do NOT use
+`uv run tk`, `python -m tasukura`, etc.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `tk add "Title" --description "..." [--source-id ID] [--source TYPE] [--parent ID] [--next-action "..."] [--top] [--after ID]` | Add a task (description is required. --top for top position, --after to insert after a specific task) |
-| `tk list [--status todo,in_progress] [--source TYPE] [--flat]` | List tasks (tree view by default) |
-| `tk update <id> [--title "..."] [--description "..."] [--next-action "..."] [--source-id ID] [--source TYPE]` | Update task fields |
+| `tk add "Title" --description "..." [--source-id ID] [--source TYPE] [--parent ID] [--next-action "..."] [--top] [--after ID]` | Add a task (description required) |
+| `tk list [--status todo,in_progress] [--source TYPE] [--flat]` | List tasks (tree by default) |
+| `tk update <id> [--title "..."] [--source-id ID] [--source TYPE]` | Update title or external source linkage. For `next_action` / `description`, use `tk log` |
+| `tk delete <id>` | Delete task (fails cleanly if records exist) |
 | `tk status <id> <new_status>` | Change status (todo/in_progress/in_review/done) |
-| `tk log <id> --summary "..." [--details "..."] [--remaining "..."] [--next-action "..."]` | Record progress |
-| `tk log-update <log_id> [--summary "..."] [--details "..."] [--remaining "..."]` | Update an existing log entry (empty string clears details/remaining) |
-| `tk log-delete <log_id>` | Delete a log entry |
-| `tk rank <id> [--after ID]` | Change display order (no args = move to top, --after = place after specified task) |
-| `tk board [--status todo,in_progress]` | Kanban board view by status |
-| `tk show <id>` | Show task details + logs + children |
+| `tk log <id> --summary "..." [--details "..."] [--remaining "..."] [--next-action "..."] [--description "..."]` | Record progress. `--next-action` updates task and is persisted as `next_action_set` on the log (history). `--description` updates task only |
+| `tk log-update <log_id> [--summary "..."] [--details "..."] [--remaining "..."]` | Edit a log (empty string clears) |
+| `tk log-delete <log_id>` | Delete a log (fails cleanly if a record references it) |
+| `tk record add <task_id> --kind <decision\|finding\|blocker\|question\|hypothesis> --log-id <log_id> --summary "..." [--details "..."] [--supersedes <record_id>]` | Add a typed record extracted from a log |
+| `tk record list <task_id> [--kind X] [--all]` | List records (active by default) |
+| `tk record show <record_id> [--with-log]` | Show record; `--with-log` dereferences source log |
+| `tk record update <record_id> [--summary "..."] [--details "..."]` | Typo / wording fix only |
+| `tk record resolve <blocker_id>` | Mark blocker resolved |
+| `tk record obsolete <id>` | Retire a record without replacement |
+| `tk record verify <id>` | Update `last_verified_at` (re-confirmed valid) |
+| `tk record delete <id>` | Permanently delete a mistaken record. For valid records, prefer `obsolete` |
+| `tk rank <id> [--after ID]` | Reorder |
+| `tk board [--status ...]` | Kanban view |
+| `tk show <id> [--full] [--kind X] [--logs N]` | Active context view |
 
-IDs can be shortened — type just enough characters to uniquely identify a task or log. `tk show <task_id>` displays the short log ID at the head of each Progress line; use that to specify a target for `log-update` / `log-delete`.
+IDs accept prefix matches (12-char short IDs displayed).
 
-## Task Fields
+## Two-Layer Memory Model
 
-| Field | Description |
-|-------|-------------|
-| `title` | Task name (short) |
-| `description` | Goal, acceptance criteria, and background (**required**) |
-| `next_action` | Next step to take. Displayed as `->` in `tk list` |
-| `status` | todo / in_progress / in_review / done |
-| `position` | Display order (lower = higher priority. Change with `tk rank`) |
-| `source_id` | External source identifier (e.g. PROJ-123, #456) |
-| `source` | Source type (e.g. jira, github, linear) |
-| `parent_id` | Parent task ID. Supports multiple levels |
+```
+progress_logs   <- raw timeseries trace (process, investigation, discussion, alternatives)
+   |
+   | extract & summarize (promote with --log-id)
+   v
+records         <- typed memory (conclusion, rationale, scope only)
+   |
+   | automatic narrowing (status / freshness / threshold)
+   v
+tk show         <- active context (read by the LLM every turn)
+```
+
+**Cardinality rule of thumb:** Most logs do **not** become records. Records are for facts
+an agent should re-read in future sessions.
+
+## When to Use What
+
+### `tk log` (always write)
+
+- On every commit
+- At every meaningful progress milestone
+- When verbalizing a design discussion as "the process"
+- When a blocker appears or is resolved
+- For failed attempts — do NOT promote these to records
+- Put the full process into `--details`. This becomes the raw evidence for any future record.
+
+### `tk record add` (only when promoting)
+
+| kind | When to use |
+|------|-------------|
+| `decision` | A design choice, policy, or constraint has been finalized |
+| `finding` | An investigation or experiment confirmed a **fact** |
+| `blocker` | A blocker that future work may need to reference |
+| `question` | An open issue you want to track **explicitly** even though unresolved |
+| `hypothesis` | A "probably X" assumption you're operating on but haven't verified |
+
+**Procedure:**
+
+1. `tk record list <task_id> --kind <X>` to see existing active records (dedup responsibility)
+2. If a duplicate exists, supersede it: `tk record add ... --supersedes <old_id>` (old is auto-marked superseded)
+3. Otherwise just `tk record add ... --log-id <log_id>`
+
+`--log-id` is **required**. This enforces the promotion gate (raw → typed) and prevents
+"orphan records" whose root cause cannot be traced.
+
+### Record content guideline (extract, do not copy)
+
+Following the research literature (Memori semantic triples, "From Storage to Experience"
+trajectory abstraction): a record is not a copy of the raw log — it is the **conclusion
+extracted** from it.
+
+| Field | Put here | Do not put here |
+|-------|----------|-----------------|
+| `record.summary` | The conclusion in one line ("we adopted X", "X is broken", "X happened") | Process, alternatives considered |
+| `record.details` | Essential rationale, scope, constraints, reconsideration triggers | Process, investigation steps, rejected alternatives |
+| `log.summary` | One line summarizing the activity | — |
+| `log.details` | Process, investigation, discussion, alternatives (raw evidence) | — |
+
+**Bad (record is a copy of the log):**
+
+```
+log.details   = "Compared OIDC / Auth0 / self-hosted. OIDC: standards-compliant, medium maintenance.
+                 Auth0: SaaS, expensive. Self-hosted: high learning cost. Conclusion: OIDC."
+record.details = "Compared OIDC / Auth0 / self-hosted. OIDC: standards-compliant ..."
+                     ^^^^ verbatim copy of the log
+```
+
+**Good (record extracts the conclusion):**
+
+```
+log.details   = "<same process as above>"
+record.summary = "Adopt OIDC for authentication"
+record.details = "Driving criteria: balance of maintenance cost and standardization;
+                  avoid vendor lock-in.
+                  Scope: all authentication-related modules.
+                  Reconsideration trigger: when migrating to a managed SaaS."
+```
+
+To see the process later, use `tk record show R-xxx --with-log` to dereference the source log.
+
+## Lifecycle
+
+```
+add (--supersedes <old>)
+  └─ Old record's status is auto-flipped to 'superseded'
+update (typo / wording fix only)
+  └─ For semantic changes, always use 'add --supersedes' instead
+resolve (blocker only)
+  └─ status=resolved, resolved_at=now
+obsolete (retire without replacement)
+  └─ status=obsolete
+verify (no content change)
+  └─ last_verified_at=now (clears the [stale] marker)
+delete (mistaken record only)
+  └─ row removed entirely. Use 'obsolete' for valid records you want to keep in history.
+```
+
+## How to Read `tk show`
+
+Default output:
+
+```
+Active Decisions (N):
+  R-xxxx  <summary> [stale]?
+  ...
+
+Active Blockers (N):  ...
+Open Findings (N):    ...
+Open Questions (N):   ...
+Open Hypotheses (N):  ...
+
+Recent logs (5):
+  L-xxxx  [date] <summary>
+
+⚠ Active <kind>s (N) exceed threshold (K) — consider obsolete/supersede
+```
+
+- Read **ID + summary** only. Dereference details only when needed via `tk record show R-xxx`.
+- `[stale]` marker = `last_verified_at` (or `created_at` if never verified) is older than
+  `stale_after_days`. Resolve by `tk record verify` or `tk record obsolete`.
+- Warning = active set is growing. Clean up via `obsolete` / `supersede`.
+
+Options: `--full` (include inactive records and all logs), `--kind <X>` (filter), `--logs N`
+(change log count).
 
 ## Operation Flows
 
-### `/task` — Task Operations
+### `/task` — Task operations
 
-Interpret user intent and execute the appropriate command:
-- "Add a task" → `tk add` (confirm description with user)
-- "List tasks" → `tk list`
+User intent → command mapping:
+
+- "Add a task" → `tk add` (confirm description with the user)
 - "Start working on X" → `tk status <id> in_progress`
 - "X is ready for review" → `tk status <id> in_review`
-- "Update next action" → `tk update <id> --next-action "..."`
+- "Update next action" → `tk log <id> --summary "..." --next-action "..."` (history is preserved)
+- "Update description" → `tk log <id> --summary "..." --description "..."`
 - "Move X to the top" → `tk rank <id>`
-- "Move after X" → `tk rank <id> --after <other_id>`
 
-#### When to use in_review
+#### When to use `in_review`
 
-Set status to `in_review` when:
-- A PR has been submitted and is awaiting review
-- Waiting for user confirmation or decision
-- Waiting for a response from another team
-
-`in_review` = no action needed from you; waiting on someone else.
+PR submitted / waiting on user / waiting on another team — i.e., no agent action needed.
 
 #### Adding tasks from external sources
 
-When adding with `--source-id` and `--source`, **always retrieve the source description first** and include it **verbatim** (no summarization) in the tk description. All information from the source (background, requirements, steps, links, etc.) must be preserved in the tk description.
+When creating a task from an external ticket, **always include the source content verbatim**
+in the description (do not summarize). Reason: the Storage layer in the research literature
+mandates preserving the raw form.
 
-Steps:
-1. Retrieve the ticket/issue description from the external source
-2. Include the content **as-is** (preserving structure, lists, links) in `--description`. Do not summarize
-3. Set the first step as `--next-action`
+```
+1. Fetch the description from the external source (JIRA, GitHub, ...)
+2. Include structure, lists, and links verbatim in --description
+3. Put the first step in --next-action
+```
 
-### `/progress` — Progress Logging
-
-Record progress based on user instruction or your own judgment:
+### `/progress` — Progress logging
 
 1. `tk list --status in_progress` to find active tasks
-2. `tk log` to record progress on the relevant task
-3. `tk status` to change status if needed
-4. Update `--next-action` if the next step has changed
+2. `tk log <id> --summary "..." --details "..."`
+3. If state changes, follow up with `tk status` / `tk log --next-action`
 
-## Proactive Progress Logging
+### Proactive logging
 
-Record progress without user instruction at these moments:
-- On commit
-- When a design decision or approach is finalized
-- When investigation or analysis reaches a milestone
-- When a blocker appears or is resolved
+When to write without an explicit user instruction:
 
-Steps:
-1. `tk list --status todo,in_progress` to find the relevant task
-2. `tk log <id>` to record
-3. Skip if no relevant task exists (do not create tasks without user confirmation)
+| Trigger | log | record |
+|---------|-----|--------|
+| On commit | ✅ `tk log` | ❌ (unless this commit is a milestone) |
+| Design decision finalized | ✅ process in `--details` | ✅ `tk record add --kind decision --log-id <log>` |
+| Investigation confirmed | ✅ process | ✅ `--kind finding` |
+| Blocker appears | ✅ situation | ✅ (if future reference is likely) `--kind blocker` |
+| Blocker resolved | ✅ resolution process | ✅ `tk record resolve <blocker_id>` |
+| Failed attempt | ✅ | ❌ (attempts do not get promoted to records) |
 
-## Progress Log Guidelines
+**Decision order**: always write the log first → ask "is this worth re-reading next session?"
+→ if yes, promote it to a record.
 
-Logs should contain **enough context for another AI agent to pick up or resume the task**.
+### Handling `[stale]`
 
-### Always include `--details`
+When you see a `[stale]` marker:
 
-A log with only `--summary` is insufficient. **`--details` is mandatory**.
+1. `tk record show R-xxx` to inspect (add `--with-log` for the original process if needed)
+2. **Still valid** → `tk record verify R-xxx`
+3. **Outdated, no replacement** → `tk record obsolete R-xxx`
+4. **Replacing with a new decision** → `tk log` for the process → `tk record add --supersedes R-xxx ...`
 
-- **`--summary`**: One-line description of what was done or what happened
-- **`--details`** (required): Include:
-  - Reasoning, investigation results, what was tried
-  - Technical specifics (file names, line numbers, metrics)
-  - Artifacts created (ticket numbers, PR numbers, branch names)
-  - List of changed files
-  - Enough detail for the next agent to understand "why this state" and "how far along"
-- **`--remaining`**: Remaining work or blockers
-- **`--next-action`**: Update the task's next action (updates the task record simultaneously)
+Do not destroy typed memory through continuous updates (research: "useful memories become
+faulty when continuously updated"). For semantic changes, always use supersede.
 
-### Bad vs. Good Examples
+## Configuration
 
-**Bad (insufficient):**
+`~/.config/tk/config.toml`:
+
+```toml
+db_path = "~/.local/share/tk/tasks.db"
+
+[board]
+done_retention_days = 14
+
+[record]
+stale_after_days = 30          # default
+
+[record.active_warn]
+decision = 10                  # default
+blocker = 3                    # default
+finding = 10                   # default
+question = 10                  # default
+hypothesis = 10                # default
 ```
-tk log <id> --summary "Created 7 tickets in JIRA"
-```
 
-**Good (detailed):**
-```
-tk log <id> --summary "Completed investigation and ticketing for auth module refactor" \
-  --details "Investigated the full repository and created 3 tickets:
-1. PROJ-101: Extract shared validation logic - utils.py overlap ~90%
-2. PROJ-102: Unify error handling - identified inconsistent response format
-..."
-```
-
-Logs may be forwarded to external systems, so write them clearly enough for third parties to understand.
+Environment overrides: `TK_DB_PATH` (database path), `TK_CONFIG_PATH` (config file path).

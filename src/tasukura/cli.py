@@ -7,7 +7,7 @@ import typer
 
 from tasukura.config import TkConfig
 from tasukura.db import TaskDB
-from tasukura.models import RecordKind, RecordStatus, Task, TaskStatus
+from tasukura.models import Record, RecordKind, RecordStatus, Task, TaskStatus
 
 app = typer.Typer(help="tk - local task management CLI for AI agents")
 
@@ -41,6 +41,22 @@ def _short_id(task_id: str) -> str:
     so 12 characters include 2 random characters for disambiguation.
     """
     return task_id[:12]
+
+
+def _is_stale(record: Record, stale_after_days: int) -> bool:
+    """Return True if the record's freshness reference timestamp is older than threshold.
+
+    Uses ``last_verified_at`` if set, otherwise ``created_at``.
+    """
+    reference = record.last_verified_at or record.created_at
+    try:
+        ref_dt = datetime.fromisoformat(reference)
+    except ValueError:
+        return False
+    if ref_dt.tzinfo is None:
+        ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - ref_dt
+    return age.days >= stale_after_days
 
 
 def _parse_status(value: str) -> TaskStatus:
@@ -169,35 +185,27 @@ def _print_task_tree(tasks: list[Task]) -> None:
 def update(
     task_id: str,
     title: Annotated[Optional[str], typer.Option(help="Task title")] = None,
-    description: Annotated[
-        Optional[str], typer.Option(help="Goal, acceptance criteria, and background")
-    ] = None,
     source_id: Annotated[Optional[str], typer.Option(help="External source ID")] = None,
     source: Annotated[Optional[str], typer.Option(help="Source type")] = None,
-    next_action: Annotated[
-        Optional[str], typer.Option(help="Next action to take")
-    ] = None,
 ) -> None:
-    """Update task fields."""
+    """Update task title or external source linkage.
+
+    For ``next_action`` or ``description`` changes, use ``tk log --next-action ...``
+    or ``tk log --description ...`` — that path keeps the change as a log entry.
+    """
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         task = db.update_task(
             resolved_id,
             title=title,
-            description=description,
             source_id=source_id,
             source=source,
-            next_action=next_action,
         )
     typer.echo(f"Updated: {_short_id(task.id)}  {task.title}")
-    if description is not None:
-        typer.echo(f"  description: {task.description}")
     if source_id is not None:
         typer.echo(f"  source_id: {task.source_id}")
     if source is not None:
         typer.echo(f"  source: {task.source}")
-    if next_action is not None:
-        typer.echo(f"  next: {task.next_action}")
 
 
 @app.command()
@@ -257,17 +265,32 @@ def log(
         Optional[str], typer.Option(help="Remaining work or blockers")
     ] = None,
     next_action: Annotated[
-        Optional[str], typer.Option(help="Next action (also updates the task)")
+        Optional[str],
+        typer.Option(
+            help="Next action — updates the task and records the change on this log"
+        ),
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Update task.description (no log-side history; recommended for description edits)"
+        ),
     ] = None,
 ) -> None:
     """Record a progress log entry."""
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         entry = db.add_log(
-            resolved_id, summary=summary, details=details, remaining=remaining
+            resolved_id,
+            summary=summary,
+            details=details,
+            remaining=remaining,
+            next_action_set=next_action,
         )
         if next_action is not None:
             db.update_task(resolved_id, next_action=next_action)
+        if description is not None:
+            db.update_task(resolved_id, description=description)
     typer.echo(f"Logged: {entry.summary}")
     typer.echo(f"ID: {entry.id}")
     if entry.details:
@@ -276,6 +299,8 @@ def log(
         typer.echo(f"  remaining: {entry.remaining}")
     if next_action is not None:
         typer.echo(f"  next: {next_action}")
+    if description is not None:
+        typer.echo(f"  description: {description}")
 
 
 @app.command("log-update")
@@ -321,16 +346,41 @@ def log_delete(log_id: str) -> None:
 
 
 @app.command()
-def show(task_id: str) -> None:
-    """Show task details and progress logs."""
+def show(
+    task_id: str,
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help="Include superseded / obsolete / resolved records and all logs",
+        ),
+    ] = False,
+    kind: Annotated[
+        Optional[str],
+        typer.Option(help="Filter active records to this kind only"),
+    ] = None,
+    logs: Annotated[
+        int,
+        typer.Option(
+            "--logs",
+            help="Number of recent logs to display (0 disables, --full shows all)",
+        ),
+    ] = 5,
+) -> None:
+    """Show task details, active records, and recent logs."""
+    parsed_kind = _parse_record_kind(kind) if kind else None
+    config = _get_config()
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         task = db.get_task(resolved_id)
         if task is None:
             typer.echo(f"Task {task_id} not found")
             raise typer.Exit(1)
-        logs = db.get_logs(resolved_id)
+        all_logs = db.get_logs(resolved_id)
         child_tasks = db.list_tasks(parent_id=task.id)
+        records = db.list_records(
+            task_id=resolved_id, kind=parsed_kind, include_inactive=full
+        )
 
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -346,24 +396,94 @@ def show(task_id: str) -> None:
     if task.next_action:
         typer.echo(f"  next: {task.next_action}")
     typer.echo(f"  created: {task.created_at}")
+
     if child_tasks:
         typer.echo("\nChildren:")
         for child in child_tasks:
             _print_task_line(child, "  ")
 
-    typer.echo("")
-    if logs:
-        typer.echo("Progress:")
-        for entry in logs:
-            typer.echo(
-                f"  {_short_id(entry.id)}  [{entry.created_at[:16]}] {entry.summary}"
+    _print_record_sections(
+        records,
+        parsed_kind,
+        stale_after_days=config.stale_after_days,
+        active_warn=config.active_warn_thresholds,
+    )
+    log_limit = len(all_logs) if full else logs
+    _print_recent_logs(all_logs, log_limit)
+
+
+_RECORD_SECTIONS = [
+    (RecordKind.DECISION, "Active", "Decisions"),
+    (RecordKind.BLOCKER, "Active", "Blockers"),
+    (RecordKind.FINDING, "Open", "Findings"),
+    (RecordKind.QUESTION, "Open", "Questions"),
+    (RecordKind.HYPOTHESIS, "Open", "Hypotheses"),
+]
+
+
+def _print_record_sections(
+    records: list[Record],
+    kind_filter: RecordKind | None,
+    stale_after_days: int,
+    active_warn: dict[str, int],
+) -> None:
+    """Print the grouped active-records view + threshold warnings."""
+    by_kind: dict[RecordKind, list[Record]] = {k: [] for k, _, _ in _RECORD_SECTIONS}
+    for r in records:
+        if r.kind in by_kind:
+            by_kind[r.kind].append(r)
+
+    overflow_warnings: list[str] = []
+    for kind, prefix, header in _RECORD_SECTIONS:
+        if kind_filter is not None and kind != kind_filter:
+            continue
+        rows = by_kind[kind]
+        typer.echo(f"\n{prefix} {header} ({len(rows)}):")
+        if not rows:
+            typer.echo("  (none)")
+            continue
+        for r in rows:
+            stale_tag = (
+                " [stale]"
+                if r.status == RecordStatus.ACTIVE and _is_stale(r, stale_after_days)
+                else ""
             )
-            if entry.details:
-                typer.echo(f"    details: {entry.details}")
-            if entry.remaining:
-                typer.echo(f"    remaining: {entry.remaining}")
-    else:
-        typer.echo("Progress: (none)")
+            status_tag = (
+                f" [{r.status.value}]" if r.status != RecordStatus.ACTIVE else ""
+            )
+            typer.echo(f"  {_short_id(r.id)}  {r.summary}{stale_tag}{status_tag}")
+
+        active_count = sum(1 for r in rows if r.status == RecordStatus.ACTIVE)
+        threshold = active_warn.get(kind.value, 0)
+        if threshold and active_count > threshold:
+            overflow_warnings.append(
+                f"⚠ Active {kind.value}s ({active_count}) exceed threshold ({threshold})"
+                f" — consider obsolete/supersede"
+            )
+
+    for warning in overflow_warnings:
+        typer.echo(warning)
+
+
+def _print_recent_logs(all_logs: list, limit: int) -> None:
+    """Print the recent logs section (newest first)."""
+    typer.echo("")
+    if limit <= 0:
+        return
+    reversed_logs = list(reversed(all_logs))
+    recent = reversed_logs[:limit]
+    typer.echo(f"Recent logs ({len(recent)}):")
+    if not recent:
+        typer.echo("  (none)")
+        return
+    for entry in recent:
+        typer.echo(
+            f"  {_short_id(entry.id)}  [{entry.created_at[:16]}] {entry.summary}"
+        )
+        if entry.details:
+            typer.echo(f"    details: {entry.details}")
+        if entry.remaining:
+            typer.echo(f"    remaining: {entry.remaining}")
 
 
 @app.command()
@@ -483,12 +603,20 @@ def record_add(
     details: Annotated[
         Optional[str], typer.Option(help="Rationale, scope, constraints")
     ] = None,
+    supersedes: Annotated[
+        Optional[str],
+        typer.Option(
+            "--supersedes",
+            help="ID of an older record this one replaces (will be marked superseded)",
+        ),
+    ] = None,
 ) -> None:
     """Add a typed record promoted from a progress log."""
     parsed_kind = _parse_record_kind(kind)
     with _get_db() as db:
         resolved_task_id = _resolve_id(db, task_id)
         resolved_log_id = _resolve_log_id(db, log_id)
+        resolved_supersedes = _resolve_record_id(db, supersedes) if supersedes else None
         try:
             record = db.add_record(
                 task_id=resolved_task_id,
@@ -496,6 +624,7 @@ def record_add(
                 source_log_id=resolved_log_id,
                 summary=summary,
                 details=details,
+                supersedes=resolved_supersedes,
             )
         except ValueError as e:
             typer.echo(str(e))
@@ -507,6 +636,8 @@ def record_add(
     if record.details:
         typer.echo(f"  details: {record.details}")
     typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+    if record.supersedes:
+        typer.echo(f"  supersedes: {_short_id(record.supersedes)}")
 
 
 @record_app.command("list")
@@ -536,14 +667,24 @@ def record_list(
 
 
 @record_app.command("show")
-def record_show(record_id: str) -> None:
-    """Show a record's full details."""
+def record_show(
+    record_id: str,
+    with_log: Annotated[
+        bool,
+        typer.Option(
+            "--with-log",
+            help="Also dereference source_log_id and show that progress log's content.",
+        ),
+    ] = False,
+) -> None:
+    """Show a record's full details. ``--with-log`` includes the raw evidence log."""
     with _get_db() as db:
         resolved_id = _resolve_record_id(db, record_id)
         record = db.get_record(resolved_id)
         if record is None:
             typer.echo(f"Record {record_id} not found")
             raise typer.Exit(1)
+        source_log = db.get_log(record.source_log_id) if with_log else None
     typer.echo(f"ID: {record.id}")
     typer.echo(f"  task_id: {_short_id(record.task_id)}")
     typer.echo(f"  kind: {record.kind.value}")
@@ -560,6 +701,104 @@ def record_show(record_id: str) -> None:
         typer.echo(f"  last_verified_at: {record.last_verified_at}")
     typer.echo(f"  created: {record.created_at}")
     typer.echo(f"  updated: {record.updated_at}")
+    if with_log and source_log is not None:
+        typer.echo("")
+        typer.echo("Source log:")
+        typer.echo(f"  ID: {source_log.id}")
+        typer.echo(f"  summary: {source_log.summary}")
+        if source_log.details:
+            typer.echo(f"  details: {source_log.details}")
+        if source_log.remaining:
+            typer.echo(f"  remaining: {source_log.remaining}")
+        if source_log.next_action_set:
+            typer.echo(f"  next_action_set: {source_log.next_action_set}")
+        typer.echo(f"  created: {source_log.created_at}")
+
+
+@record_app.command("update")
+def record_update(
+    record_id: str,
+    summary: Annotated[Optional[str], typer.Option(help="New one-line summary")] = None,
+    details: Annotated[
+        Optional[str],
+        typer.Option(
+            help="New details (empty string clears). Use --supersedes on add for semantic changes."
+        ),
+    ] = None,
+) -> None:
+    """Update a record's summary or details (typo / 補足 only).
+
+    For semantic changes, prefer ``tk record add --supersedes <id> ...``.
+    """
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.update_record(resolved_id, summary=summary, details=details)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Updated record: {_short_id(record.id)}  {record.summary}")
+    if record.details is not None:
+        typer.echo(f"  details: {record.details}")
+
+
+@record_app.command("resolve")
+def record_resolve(record_id: str) -> None:
+    """Mark a blocker record as resolved."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.resolve_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Resolved: {_short_id(record.id)}  {record.summary}")
+    typer.echo(f"  resolved_at: {record.resolved_at}")
+
+
+@record_app.command("obsolete")
+def record_obsolete(record_id: str) -> None:
+    """Mark a record as obsolete (no longer active, no replacement)."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.obsolete_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Obsoleted: {_short_id(record.id)}  {record.summary}")
+
+
+@record_app.command("verify")
+def record_verify(record_id: str) -> None:
+    """Mark a record as verified (re-confirmed valid) at the current time."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.verify_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Verified: {_short_id(record.id)}  {record.summary}")
+    typer.echo(f"  last_verified_at: {record.last_verified_at}")
+
+
+@record_app.command("delete")
+def record_delete(record_id: str) -> None:
+    """Delete a record permanently.
+
+    Use ``tk record obsolete`` if you want to keep the record in history.
+    Delete is for clearly mistaken records (typos, duplicates, test data).
+    Fails cleanly if another record's ``supersedes`` references this one.
+    """
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.delete_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Deleted record: {_short_id(record.id)}  {record.summary}")
 
 
 def _resolve_id(db: TaskDB, partial_id: str) -> str:

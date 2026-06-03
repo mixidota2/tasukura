@@ -560,3 +560,249 @@ def test_delete_log_referenced_by_record_raises(db: TaskDB):
         ValueError, match=r"Cannot delete log .* referenced by a record"
     ):
         db.delete_log(log.id)
+
+
+def test_add_record_supersedes_flips_old_status(db: TaskDB):
+    """新しい record が指定した旧 record を superseded にする."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    old = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="認証にOIDC",
+    )
+    new = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="認証にAuth0",
+        supersedes=old.id,
+    )
+    assert new.supersedes == old.id
+    assert new.status == RecordStatus.ACTIVE
+    refetched_old = db.get_record(old.id)
+    assert refetched_old is not None
+    assert refetched_old.status == RecordStatus.SUPERSEDED
+
+
+def test_add_record_supersedes_unknown_raises(db: TaskDB):
+    """存在しない supersedes ID では失敗する."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.add_record(
+            task_id=task.id,
+            kind=RecordKind.DECISION,
+            source_log_id=log.id,
+            summary="新",
+            supersedes="01NONEXISTENT" + "A" * 13,
+        )
+
+
+def test_update_record_summary(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="old"
+    )
+    updated = db.update_record(rec.id, summary="new")
+    assert updated.summary == "new"
+    assert updated.details == rec.details
+    assert updated.updated_at >= rec.updated_at
+
+
+def test_update_record_details_only(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+        details="initial",
+    )
+    updated = db.update_record(rec.id, details="appended")
+    assert updated.summary == "S"
+    assert updated.details == "appended"
+
+
+def test_update_record_no_changes_returns_record(db: TaskDB):
+    """summary も details も None なら現状を返す."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    same = db.update_record(rec.id)
+    assert same.id == rec.id
+    assert same.summary == rec.summary
+    assert same.updated_at == rec.updated_at
+
+
+def test_update_record_clear_details_with_empty_string(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+        details="initial",
+    )
+    cleared = db.update_record(rec.id, details="")
+    assert cleared.details == ""
+
+
+def test_update_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.update_record("01NOTHING" + "X" * 17, summary="x")
+
+
+def test_resolve_record_blocker(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.BLOCKER,
+        source_log_id=log.id,
+        summary="CI flaky",
+    )
+    resolved = db.resolve_record(rec.id)
+    assert resolved.status == RecordStatus.RESOLVED
+    assert resolved.resolved_at is not None
+    assert resolved.resolved_at >= rec.created_at
+
+
+def test_resolve_record_non_blocker_raises(db: TaskDB):
+    """blocker 以外を resolve しようとするとエラー."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    with pytest.raises(ValueError, match="Only blocker"):
+        db.resolve_record(rec.id)
+
+
+def test_resolve_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.resolve_record("01NOTHING" + "X" * 17)
+
+
+def test_obsolete_record_sets_status(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    out = db.obsolete_record(rec.id)
+    assert out.status == RecordStatus.OBSOLETE
+    assert out.updated_at >= rec.updated_at
+
+
+def test_obsolete_record_excluded_from_default_list(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    keep = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="keep",
+    )
+    drop = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="drop",
+    )
+    db.obsolete_record(drop.id)
+    active = db.list_records(task_id=task.id)
+    assert [r.id for r in active] == [keep.id]
+
+
+def test_obsolete_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.obsolete_record("01NOTHING" + "X" * 17)
+
+
+def test_verify_record_sets_last_verified_at(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    assert rec.last_verified_at is None
+    out = db.verify_record(rec.id)
+    assert out.last_verified_at is not None
+    assert out.summary == rec.summary
+    assert out.status == rec.status
+    assert out.details == rec.details
+
+
+def test_verify_record_idempotent_update_pushes_timestamp(db: TaskDB):
+    """同じ record を再 verify すると timestamp が更新される."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    first = db.verify_record(rec.id)
+    assert first.last_verified_at is not None
+    second = db.verify_record(rec.id)
+    assert second.last_verified_at is not None
+    assert second.last_verified_at >= first.last_verified_at
+
+
+def test_verify_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.verify_record("01NOTHING" + "X" * 17)
+
+
+def test_add_log_with_next_action_set_persists(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="s", next_action_set="次の手")
+    assert log.next_action_set == "次の手"
+    fetched = db.get_log(log.id)
+    assert fetched is not None
+    assert fetched.next_action_set == "次の手"
+
+
+def test_delete_record(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="to-delete",
+    )
+    deleted = db.delete_record(rec.id)
+    assert deleted.id == rec.id
+    assert db.get_record(rec.id) is None
+
+
+def test_delete_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.delete_record("01NOTHING" + "X" * 17)
+
+
+def test_delete_record_referenced_by_supersedes_raises(db: TaskDB):
+    """supersedes で参照されている record は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    old = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="old",
+    )
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="new",
+        supersedes=old.id,
+    )
+    with pytest.raises(ValueError, match=r"Cannot delete record"):
+        db.delete_record(old.id)

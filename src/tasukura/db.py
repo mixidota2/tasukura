@@ -38,12 +38,13 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE TABLE IF NOT EXISTS progress_logs (
-    id         TEXT PRIMARY KEY,
-    task_id    TEXT NOT NULL REFERENCES tasks(id),
-    summary    TEXT NOT NULL,
-    details    TEXT,
-    remaining  TEXT,
-    created_at TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL REFERENCES tasks(id),
+    summary         TEXT NOT NULL,
+    details         TEXT,
+    remaining       TEXT,
+    next_action_set TEXT,
+    created_at      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS records (
@@ -69,6 +70,7 @@ _MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE tasks ADD COLUMN source_id TEXT",
     "ALTER TABLE tasks ADD COLUMN source TEXT",
+    "ALTER TABLE progress_logs ADD COLUMN next_action_set TEXT",
 ]
 
 
@@ -458,17 +460,20 @@ class TaskDB:
                 Must exist. This is the promotion gate from raw to typed.
             summary: Extracted conclusion (one line).
             details: Extracted rationale, scope, constraints. Not raw transcript.
-            supersedes: ID of an older record this one replaces.
-                The older record's status will be set to 'superseded' in Phase 2.
+            supersedes: ID of an older record this one replaces. If given,
+                the older record's status is set to 'superseded' atomically.
 
         Raises:
-            ValueError: If task_id or source_log_id is unknown.
+            ValueError: If task_id, source_log_id, or supersedes is unknown.
         """
         if self.get_task(task_id) is None:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
         if self.get_log(source_log_id) is None:
             msg = f"Log {source_log_id} not found"
+            raise ValueError(msg)
+        if supersedes is not None and self.get_record(supersedes) is None:
+            msg = f"Record {supersedes} not found"
             raise ValueError(msg)
         record = Record.new(
             task_id=task_id,
@@ -496,6 +501,11 @@ class TaskDB:
                 record.updated_at,
             ),
         )
+        if supersedes is not None:
+            self._conn.execute(
+                "UPDATE records SET status = ?, updated_at = ? WHERE id = ?",
+                (RecordStatus.SUPERSEDED.value, record.created_at, supersedes),
+            )
         self._conn.commit()
         return record
 
@@ -551,25 +561,175 @@ class TaskDB:
             raise ValueError(msg)
         return rows[0][0]
 
+    def update_record(
+        self,
+        record_id: str,
+        summary: str | None = None,
+        details: str | None = None,
+    ) -> Record:
+        """Update record fields. Only specified fields are updated.
+
+        Pass an empty string to clear ``details``. Use ``add_record(..., supersedes=...)``
+        for semantic changes — this method is for typo / 補足 only.
+
+        Raises:
+            ValueError: If record_id is unknown.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        updates: list[str] = []
+        params: list[str] = []
+        if summary is not None:
+            updates.append("summary = ?")
+            params.append(summary)
+        if details is not None:
+            updates.append("details = ?")
+            params.append(details)
+        if not updates:
+            return record
+        now = datetime.now(timezone.utc).isoformat()
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(record_id)
+        self._conn.execute(
+            f"UPDATE records SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
+        return updated
+
+    def resolve_record(self, record_id: str) -> Record:
+        """Mark a blocker record as resolved. Sets resolved_at to now.
+
+        Raises:
+            ValueError: If record is not found or is not a blocker.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        if record.kind != RecordKind.BLOCKER:
+            msg = (
+                f"Only blocker records can be resolved "
+                f"(record {record_id} is {record.kind.value})"
+            )
+            raise ValueError(msg)
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE records SET status = ?, resolved_at = ?, updated_at = ? "
+            "WHERE id = ?",
+            (RecordStatus.RESOLVED.value, now, now, record_id),
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after resolve"
+            raise RuntimeError(msg)
+        return updated
+
+    def obsolete_record(self, record_id: str) -> Record:
+        """Mark a record as obsolete (removed from active, no replacement).
+
+        Raises:
+            ValueError: If record is not found.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE records SET status = ?, updated_at = ? WHERE id = ?",
+            (RecordStatus.OBSOLETE.value, now, record_id),
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after obsolete"
+            raise RuntimeError(msg)
+        return updated
+
+    def verify_record(self, record_id: str) -> Record:
+        """Mark a record as verified at the current time.
+
+        Updates only ``last_verified_at`` and ``updated_at``. Content is unchanged.
+
+        Raises:
+            ValueError: If record is not found.
+        """
+        if self.get_record(record_id) is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "UPDATE records SET last_verified_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, record_id),
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after verify"
+            raise RuntimeError(msg)
+        return updated
+
+    def delete_record(self, record_id: str) -> Record:
+        """Delete a record.
+
+        Use ``obsolete_record`` if you want the record to survive in history.
+        Delete is for clearly mistaken records (typos, duplicates, test data).
+
+        Raises:
+            ValueError: If the record is not found, or if another record's
+                ``supersedes`` references it.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        try:
+            self._conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete record {record_id}: it is referenced by another "
+                f"record's supersedes. Use 'tk record obsolete' instead."
+            )
+            raise ValueError(msg) from e
+        return record
+
     def add_log(
         self,
         task_id: str,
         summary: str,
         details: str | None = None,
         remaining: str | None = None,
+        next_action_set: str | None = None,
     ) -> ProgressLog:
         """Add a progress log entry."""
         log = ProgressLog.new(
-            task_id=task_id, summary=summary, details=details, remaining=remaining
+            task_id=task_id,
+            summary=summary,
+            details=details,
+            remaining=remaining,
+            next_action_set=next_action_set,
         )
         self._conn.execute(
-            "INSERT INTO progress_logs (id, task_id, summary, details, remaining, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO progress_logs "
+            "(id, task_id, summary, details, remaining, next_action_set, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 log.id,
                 log.task_id,
                 log.summary,
                 log.details,
                 log.remaining,
+                log.next_action_set,
                 log.created_at,
             ),
         )
@@ -579,7 +739,8 @@ class TaskDB:
     def get_logs(self, task_id: str) -> list[ProgressLog]:
         """Get progress logs for a task."""
         rows = self._conn.execute(
-            "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
+            "SELECT id, task_id, summary, details, remaining, next_action_set, created_at "
+            "FROM progress_logs WHERE task_id = ? ORDER BY created_at ASC",
             (task_id,),
         ).fetchall()
         return [self._row_to_log(r) for r in rows]
@@ -593,13 +754,15 @@ class TaskDB:
             summary=r[2],
             details=r[3],
             remaining=r[4],
-            created_at=r[5],
+            next_action_set=r[5],
+            created_at=r[6],
         )
 
     def get_log(self, log_id: str) -> ProgressLog | None:
         """Get a progress log by ID."""
         row = self._conn.execute(
-            "SELECT id, task_id, summary, details, remaining, created_at FROM progress_logs WHERE id = ?",
+            "SELECT id, task_id, summary, details, remaining, next_action_set, created_at "
+            "FROM progress_logs WHERE id = ?",
             (log_id,),
         ).fetchone()
         if row is None:
