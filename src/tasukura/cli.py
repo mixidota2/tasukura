@@ -347,16 +347,40 @@ def log_delete(log_id: str) -> None:
 
 
 @app.command()
-def show(task_id: str) -> None:
-    """Show task details and progress logs."""
+def show(
+    task_id: str,
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help="Include superseded / obsolete / resolved records and all logs",
+        ),
+    ] = False,
+    kind: Annotated[
+        Optional[str],
+        typer.Option(help="Filter active records to this kind only"),
+    ] = None,
+    logs: Annotated[
+        int,
+        typer.Option(
+            "--logs",
+            help="Number of recent logs to display (0 disables, --full shows all)",
+        ),
+    ] = 5,
+) -> None:
+    """Show task details, active records, and recent logs."""
+    parsed_kind = _parse_record_kind(kind) if kind else None
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
         task = db.get_task(resolved_id)
         if task is None:
             typer.echo(f"Task {task_id} not found")
             raise typer.Exit(1)
-        logs = db.get_logs(resolved_id)
+        all_logs = db.get_logs(resolved_id)
         child_tasks = db.list_tasks(parent_id=task.id)
+        records = db.list_records(
+            task_id=resolved_id, kind=parsed_kind, include_inactive=full
+        )
 
     typer.echo(f"ID: {task.id}")
     typer.echo(f"  title: {task.title}")
@@ -372,24 +396,88 @@ def show(task_id: str) -> None:
     if task.next_action:
         typer.echo(f"  next: {task.next_action}")
     typer.echo(f"  created: {task.created_at}")
+
     if child_tasks:
         typer.echo("\nChildren:")
         for child in child_tasks:
             _print_task_line(child, "  ")
 
-    typer.echo("")
-    if logs:
-        typer.echo("Progress:")
-        for entry in logs:
-            typer.echo(
-                f"  {_short_id(entry.id)}  [{entry.created_at[:16]}] {entry.summary}"
+    _print_record_sections(records, parsed_kind)
+    log_limit = len(all_logs) if full else logs
+    _print_recent_logs(all_logs, log_limit)
+
+
+_RECORD_SECTIONS = [
+    (RecordKind.DECISION, "Active", "Decisions"),
+    (RecordKind.BLOCKER, "Active", "Blockers"),
+    (RecordKind.FINDING, "Open", "Findings"),
+    (RecordKind.QUESTION, "Open", "Questions"),
+    (RecordKind.HYPOTHESIS, "Open", "Hypotheses"),
+]
+
+
+def _print_record_sections(
+    records: list[Record],
+    kind_filter: RecordKind | None,
+) -> None:
+    """Print the grouped active-records view + threshold warnings."""
+    by_kind: dict[RecordKind, list[Record]] = {k: [] for k, _, _ in _RECORD_SECTIONS}
+    for r in records:
+        if r.kind in by_kind:
+            by_kind[r.kind].append(r)
+
+    overflow_warnings: list[str] = []
+    for kind, prefix, header in _RECORD_SECTIONS:
+        if kind_filter is not None and kind != kind_filter:
+            continue
+        rows = by_kind[kind]
+        typer.echo(f"\n{prefix} {header} ({len(rows)}):")
+        if not rows:
+            typer.echo("  (none)")
+            continue
+        for r in rows:
+            stale_tag = (
+                " [stale]"
+                if r.status == RecordStatus.ACTIVE
+                and _is_stale(r, _STALE_AFTER_DAYS_DEFAULT)
+                else ""
             )
-            if entry.details:
-                typer.echo(f"    details: {entry.details}")
-            if entry.remaining:
-                typer.echo(f"    remaining: {entry.remaining}")
-    else:
-        typer.echo("Progress: (none)")
+            status_tag = (
+                f" [{r.status.value}]" if r.status != RecordStatus.ACTIVE else ""
+            )
+            typer.echo(f"  {_short_id(r.id)}  {r.summary}{stale_tag}{status_tag}")
+
+        active_count = sum(1 for r in rows if r.status == RecordStatus.ACTIVE)
+        threshold = _ACTIVE_WARN_DEFAULTS.get(kind.value, 0)
+        if threshold and active_count > threshold:
+            overflow_warnings.append(
+                f"⚠ Active {kind.value}s ({active_count}) exceed threshold ({threshold})"
+                f" — consider obsolete/supersede"
+            )
+
+    for warning in overflow_warnings:
+        typer.echo(warning)
+
+
+def _print_recent_logs(all_logs: list, limit: int) -> None:
+    """Print the recent logs section (newest first)."""
+    typer.echo("")
+    if limit <= 0:
+        return
+    reversed_logs = list(reversed(all_logs))
+    recent = reversed_logs[:limit]
+    typer.echo(f"Recent logs ({len(recent)}):")
+    if not recent:
+        typer.echo("  (none)")
+        return
+    for entry in recent:
+        typer.echo(
+            f"  {_short_id(entry.id)}  [{entry.created_at[:16]}] {entry.summary}"
+        )
+        if entry.details:
+            typer.echo(f"    details: {entry.details}")
+        if entry.remaining:
+            typer.echo(f"    remaining: {entry.remaining}")
 
 
 @app.command()

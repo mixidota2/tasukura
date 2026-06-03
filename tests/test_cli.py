@@ -429,7 +429,7 @@ def _extract_log_id(show_output: str) -> str:
     """tk showの出力から最初の短縮ログIDを抽出する."""
     in_progress = False
     for line in show_output.split("\n"):
-        if line.startswith("Progress:"):
+        if line.startswith("Recent logs"):
             in_progress = True
             continue
         if in_progress and line.startswith("  01"):
@@ -443,7 +443,7 @@ def _extract_log_id_for_summary(show_output: str, summary: str) -> str:
     """tk showの出力から指定summaryに対応する短縮ログIDを抽出する."""
     in_progress = False
     for line in show_output.split("\n"):
-        if line.startswith("Progress:"):
+        if line.startswith("Recent logs"):
             in_progress = True
             continue
         if in_progress and line.startswith("  01") and summary in line:
@@ -984,3 +984,163 @@ def test_record_verify_via_cli():
 def test_record_verify_not_found():
     result = runner.invoke(app, ["record", "verify", "01ZZZZZZ"])
     assert result.exit_code != 0
+
+
+def test_show_default_lists_active_records_by_kind():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(app, ["log", task_id, "--summary", "evidence"]).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "dec-1",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "blocker",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blk-1",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "fnd-1",
+        ],
+    )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active Decisions (1):" in out
+    assert "dec-1" in out
+    assert "Active Blockers (1):" in out
+    assert "blk-1" in out
+    assert "Open Findings (1):" in out
+    assert "fnd-1" in out
+
+
+def test_show_empty_sections_say_none():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Active Decisions (0):" in out
+    assert "(none)" in out
+
+
+def test_show_recent_logs_default_5():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    for i in range(7):
+        runner.invoke(app, ["log", task_id, "--summary", f"log-{i}"])
+    out = runner.invoke(app, ["show", task_id]).stdout
+    assert "Recent logs (5):" in out
+    assert "log-6" in out
+    assert "log-2" in out
+    assert "log-0" not in out
+
+
+def test_show_logs_flag_overrides_count():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    for i in range(7):
+        runner.invoke(app, ["log", task_id, "--summary", f"log-{i}"])
+    out = runner.invoke(app, ["show", task_id, "--logs", "2"]).stdout
+    assert "Recent logs (2):" in out
+    assert "log-6" in out
+    assert "log-5" in out
+    assert "log-4" not in out
+
+
+def test_show_kind_filter_limits_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "dec-x",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "fnd-x",
+        ],
+    )
+    out = runner.invoke(app, ["show", task_id, "--kind", "decision"]).stdout
+    assert "dec-x" in out
+    assert "fnd-x" not in out
+
+
+def test_show_full_includes_inactive_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "ev"]).stdout)
+    rec_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "to-be-obsoleted",
+            ],
+        ).stdout
+    )
+    runner.invoke(app, ["record", "obsolete", rec_id])
+    default_out = runner.invoke(app, ["show", task_id]).stdout
+    assert "to-be-obsoleted" not in default_out
+    full_out = runner.invoke(app, ["show", task_id, "--full"]).stdout
+    assert "to-be-obsoleted" in full_out
+    assert "[obsolete]" in full_out
