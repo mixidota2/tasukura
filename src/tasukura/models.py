@@ -88,3 +88,67 @@ class ProgressLog:
             remaining=remaining,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
+
+
+class RecordKind(str, enum.Enum):
+    """Kind of typed record."""
+
+    DECISION = "decision"
+    FINDING = "finding"
+    BLOCKER = "blocker"
+    QUESTION = "question"
+    HYPOTHESIS = "hypothesis"
+
+
+class RecordStatus(str, enum.Enum):
+    """Status of a typed record."""
+
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    OBSOLETE = "obsolete"
+    RESOLVED = "resolved"  # blocker only
+
+
+@dataclass(frozen=True)
+class Record:
+    """A typed knowledge record (decision / finding / blocker / question / hypothesis)."""
+
+    id: str
+    task_id: str
+    kind: RecordKind
+    status: RecordStatus
+    summary: str
+    details: str | None
+    supersedes: str | None
+    source_log_id: str
+    resolved_at: str | None
+    last_verified_at: str | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def new(
+        cls,
+        task_id: str,
+        kind: RecordKind,
+        source_log_id: str,
+        summary: str,
+        details: str | None = None,
+        supersedes: str | None = None,
+    ) -> "Record":
+        """Create a new active record. source_log_id is required (promotion gate)."""
+        now = datetime.now(timezone.utc).isoformat()
+        return cls(
+            id=str(ULID()),
+            task_id=task_id,
+            kind=kind,
+            status=RecordStatus.ACTIVE,
+            summary=summary,
+            details=details,
+            supersedes=supersedes,
+            source_log_id=source_log_id,
+            resolved_at=None,
+            last_verified_at=None,
+            created_at=now,
+            updated_at=now,
+        )
