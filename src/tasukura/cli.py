@@ -527,6 +527,33 @@ def record_list(
         typer.echo(f"{_short_id(r.id)}  {r.kind.value:<10} {r.summary}{status_tag}")
 
 
+@record_app.command("show")
+def record_show(record_id: str) -> None:
+    """Show a record's full details."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        record = db.get_record(resolved_id)
+        if record is None:
+            typer.echo(f"Record {record_id} not found")
+            raise typer.Exit(1)
+    typer.echo(f"ID: {record.id}")
+    typer.echo(f"  task_id: {_short_id(record.task_id)}")
+    typer.echo(f"  kind: {record.kind.value}")
+    typer.echo(f"  status: {record.status.value}")
+    typer.echo(f"  summary: {record.summary}")
+    if record.details:
+        typer.echo(f"  details: {record.details}")
+    if record.supersedes:
+        typer.echo(f"  supersedes: {_short_id(record.supersedes)}")
+    typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+    if record.resolved_at:
+        typer.echo(f"  resolved_at: {record.resolved_at}")
+    if record.last_verified_at:
+        typer.echo(f"  last_verified_at: {record.last_verified_at}")
+    typer.echo(f"  created: {record.created_at}")
+    typer.echo(f"  updated: {record.updated_at}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:

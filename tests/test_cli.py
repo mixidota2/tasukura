@@ -604,3 +604,68 @@ def test_record_list_filter_by_kind():
     assert result.exit_code == 0
     assert "decision-only" in result.stdout
     assert "finding-only" not in result.stdout
+
+
+def test_record_show_basic():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(app, ["log", task_id, "--summary", "raw"]).stdout
+    )
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+            "--details",
+            "判断軸: メンテコスト",
+        ],
+    )
+    record_id = _extract_id(add_out.stdout)
+
+    result = runner.invoke(app, ["record", "show", record_id])
+    assert result.exit_code == 0, result.stdout
+    assert "認証にOIDCを採用" in result.stdout
+    assert "判断軸: メンテコスト" in result.stdout
+    assert "decision" in result.stdout
+    assert "active" in result.stdout
+    # Reference back to the source log
+    assert log_id[:6] in result.stdout
+
+
+def test_record_show_partial_id():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "partial-marker",
+        ],
+    )
+    record_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "show", record_id[:8]])
+    assert result.exit_code == 0
+    assert "partial-marker" in result.stdout
+
+
+def test_record_show_not_found():
+    result = runner.invoke(app, ["record", "show", "01ZZZZZZ"])
+    assert result.exit_code != 0
