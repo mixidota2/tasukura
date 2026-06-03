@@ -358,3 +358,32 @@ def test_list_tasks_by_parent(db: TaskDB):
     child_ids = {c.id for c in children}
     assert child1.id in child_ids
     assert child2.id in child_ids
+
+
+def test_records_table_exists(db: TaskDB):
+    """records テーブルが新規DBに作成される."""
+    row = db._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='records'"
+    ).fetchone()
+    assert row is not None
+
+
+def test_records_table_has_required_columns(db: TaskDB):
+    """records テーブルが必要なカラムを持つ."""
+    rows = db._conn.execute("PRAGMA table_info(records)").fetchall()
+    columns = {r[1] for r in rows}
+    expected = {
+        "id",
+        "task_id",
+        "kind",
+        "status",
+        "summary",
+        "details",
+        "supersedes",
+        "source_log_id",
+        "resolved_at",
+        "last_verified_at",
+        "created_at",
+        "updated_at",
+    }
+    assert expected.issubset(columns)

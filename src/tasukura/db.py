@@ -6,9 +6,21 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tasukura.models import ProgressLog, Task, TaskStatus
+from tasukura.models import (
+    ProgressLog,
+    Record,
+    RecordKind,
+    RecordStatus,
+    Task,
+    TaskStatus,
+)
 
 _TASK_COLUMNS = "id, title, description, status, source_id, source, parent_id, next_action, position, created_at, updated_at"
+
+_RECORD_COLUMNS = (
+    "id, task_id, kind, status, summary, details, supersedes, "
+    "source_log_id, resolved_at, last_verified_at, created_at, updated_at"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -32,6 +44,21 @@ CREATE TABLE IF NOT EXISTS progress_logs (
     details    TEXT,
     remaining  TEXT,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS records (
+    id                TEXT PRIMARY KEY,
+    task_id           TEXT NOT NULL REFERENCES tasks(id),
+    kind              TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'active',
+    summary           TEXT NOT NULL,
+    details           TEXT,
+    supersedes        TEXT REFERENCES records(id),
+    source_log_id     TEXT NOT NULL REFERENCES progress_logs(id),
+    resolved_at       TEXT,
+    last_verified_at  TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
 );
 """
 
@@ -110,6 +137,24 @@ class TaskDB:
             position=r[8],
             created_at=r[9],
             updated_at=r[10],
+        )
+
+    @staticmethod
+    def _row_to_record(r: tuple) -> Record:
+        """Convert a database row to a Record. Column order follows _RECORD_COLUMNS."""
+        return Record(
+            id=r[0],
+            task_id=r[1],
+            kind=RecordKind(r[2]),
+            status=RecordStatus(r[3]),
+            summary=r[4],
+            details=r[5],
+            supersedes=r[6],
+            source_log_id=r[7],
+            resolved_at=r[8],
+            last_verified_at=r[9],
+            created_at=r[10],
+            updated_at=r[11],
         )
 
     def _next_position(self) -> int:
