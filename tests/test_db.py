@@ -444,3 +444,87 @@ def test_add_record_rejects_missing_task(db: TaskDB):
             source_log_id=log.id,
             summary="...",
         )
+
+
+def test_get_record(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    fetched = db.get_record(rec.id)
+    assert fetched is not None
+    assert fetched.id == rec.id
+    assert fetched.summary == "S"
+
+
+def test_get_record_returns_none_for_missing(db: TaskDB):
+    assert db.get_record("01NOTHING" + "X" * 17) is None
+
+
+def test_list_records_active_by_default(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="A"
+    )
+    db.add_record(
+        task_id=task.id, kind=RecordKind.FINDING, source_log_id=log.id, summary="B"
+    )
+    records = db.list_records(task_id=task.id)
+    assert len(records) == 2
+    summaries = {r.summary for r in records}
+    assert summaries == {"A", "B"}
+
+
+def test_list_records_by_kind(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="A"
+    )
+    db.add_record(
+        task_id=task.id, kind=RecordKind.FINDING, source_log_id=log.id, summary="B"
+    )
+    decisions = db.list_records(task_id=task.id, kind=RecordKind.DECISION)
+    assert len(decisions) == 1
+    assert decisions[0].summary == "A"
+
+
+def test_list_records_only_for_task(db: TaskDB):
+    """別 task の record は含まれない."""
+    t1 = db.add_task("T1", description="d")
+    t2 = db.add_task("T2", description="d")
+    log1 = db.add_log(t1.id, summary="l")
+    log2 = db.add_log(t2.id, summary="l")
+
+    db.add_record(
+        task_id=t1.id, kind=RecordKind.DECISION, source_log_id=log1.id, summary="A"
+    )
+    db.add_record(
+        task_id=t2.id, kind=RecordKind.DECISION, source_log_id=log2.id, summary="B"
+    )
+    assert len(db.list_records(task_id=t1.id)) == 1
+    assert db.list_records(task_id=t1.id)[0].summary == "A"
+
+
+def test_resolve_record_id_partial(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    full = db.resolve_record_id(rec.id[:6])
+    assert full == rec.id
+
+
+def test_resolve_record_id_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.resolve_record_id("01ZZZZZZ")

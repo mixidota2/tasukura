@@ -489,6 +489,58 @@ class TaskDB:
         self._conn.commit()
         return record
 
+    def get_record(self, record_id: str) -> Record | None:
+        """Get a record by ID."""
+        row = self._conn.execute(
+            f"SELECT {_RECORD_COLUMNS} FROM records WHERE id = ?", (record_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_record(row)
+
+    def list_records(
+        self,
+        task_id: str,
+        kind: RecordKind | None = None,
+        include_inactive: bool = False,
+    ) -> list[Record]:
+        """List records for a task.
+
+        Args:
+            task_id: Filter to this task.
+            kind: If given, filter to this kind only.
+            include_inactive: If True, include superseded / obsolete / resolved.
+                Default False returns only active records.
+        """
+        query = f"SELECT {_RECORD_COLUMNS} FROM records WHERE task_id = ?"
+        params: list[str] = [task_id]
+        if kind is not None:
+            query += " AND kind = ?"
+            params.append(kind.value)
+        if not include_inactive:
+            query += " AND status = ?"
+            params.append(RecordStatus.ACTIVE.value)
+        query += " ORDER BY created_at ASC"
+        rows = self._conn.execute(query, params).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def resolve_record_id(self, partial_id: str) -> str:
+        """Resolve a partial record ID to a full ID.
+
+        Raises:
+            ValueError: If zero or multiple records match.
+        """
+        rows = self._conn.execute(
+            "SELECT id FROM records WHERE id LIKE ? || '%'", (partial_id,)
+        ).fetchall()
+        if len(rows) == 0:
+            msg = f"Record {partial_id} not found"
+            raise ValueError(msg)
+        if len(rows) > 1:
+            msg = f"Ambiguous record ID: {partial_id} (matches {len(rows)} records)"
+            raise ValueError(msg)
+        return rows[0][0]
+
     def add_log(
         self,
         task_id: str,
