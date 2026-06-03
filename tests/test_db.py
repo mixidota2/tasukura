@@ -4,7 +4,7 @@ import tempfile
 import pytest
 
 from tasukura.db import TaskDB
-from tasukura.models import TaskStatus
+from tasukura.models import RecordKind, RecordStatus, TaskStatus
 
 
 @pytest.fixture
@@ -358,3 +358,205 @@ def test_list_tasks_by_parent(db: TaskDB):
     child_ids = {c.id for c in children}
     assert child1.id in child_ids
     assert child2.id in child_ids
+
+
+def test_records_table_exists(db: TaskDB):
+    """records テーブルが新規DBに作成される."""
+    row = db._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='records'"
+    ).fetchone()
+    assert row is not None
+
+
+def test_records_table_has_required_columns(db: TaskDB):
+    """records テーブルが必要なカラムを持つ."""
+    rows = db._conn.execute("PRAGMA table_info(records)").fetchall()
+    columns = {r[1] for r in rows}
+    expected = {
+        "id",
+        "task_id",
+        "kind",
+        "status",
+        "summary",
+        "details",
+        "supersedes",
+        "source_log_id",
+        "resolved_at",
+        "last_verified_at",
+        "created_at",
+        "updated_at",
+    }
+    assert expected.issubset(columns)
+
+
+def test_add_record_minimal(db: TaskDB):
+    """最小フィールドだけで record を作成できる."""
+    task = db.add_task("T1", description="desc")
+    log = db.add_log(task.id, summary="log summary")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="認証にOIDCを採用",
+    )
+    assert rec.task_id == task.id
+    assert rec.kind == RecordKind.DECISION
+    assert rec.status == RecordStatus.ACTIVE
+    assert rec.summary == "認証にOIDCを採用"
+    assert rec.details is None
+    assert rec.supersedes is None
+    assert rec.source_log_id == log.id
+
+
+def test_add_record_with_details(db: TaskDB):
+    task = db.add_task("T1", description="desc")
+    log = db.add_log(task.id, summary="log")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.FINDING,
+        source_log_id=log.id,
+        summary="Library X stops on Py3.11",
+        details="reproduction: ...",
+    )
+    assert rec.details == "reproduction: ..."
+
+
+def test_add_record_rejects_missing_log(db: TaskDB):
+    """存在しない source_log_id では作成できない."""
+    task = db.add_task("T1", description="desc")
+    with pytest.raises(ValueError, match=r"Log .* not found"):
+        db.add_record(
+            task_id=task.id,
+            kind=RecordKind.DECISION,
+            source_log_id="01NONEXISTENT" + "A" * 13,  # 26-char invalid ULID
+            summary="...",
+        )
+
+
+def test_add_record_rejects_missing_task(db: TaskDB):
+    """存在しない task_id では作成できない."""
+    task = db.add_task("T1", description="desc")
+    log = db.add_log(task.id, summary="log")
+    with pytest.raises(ValueError, match=r"Task .* not found"):
+        db.add_record(
+            task_id="01NONEXISTENT" + "A" * 13,
+            kind=RecordKind.DECISION,
+            source_log_id=log.id,
+            summary="...",
+        )
+
+
+def test_get_record(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    fetched = db.get_record(rec.id)
+    assert fetched is not None
+    assert fetched.id == rec.id
+    assert fetched.summary == "S"
+
+
+def test_get_record_returns_none_for_missing(db: TaskDB):
+    assert db.get_record("01NOTHING" + "X" * 17) is None
+
+
+def test_list_records_active_by_default(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="A"
+    )
+    db.add_record(
+        task_id=task.id, kind=RecordKind.FINDING, source_log_id=log.id, summary="B"
+    )
+    records = db.list_records(task_id=task.id)
+    assert len(records) == 2
+    summaries = {r.summary for r in records}
+    assert summaries == {"A", "B"}
+
+
+def test_list_records_by_kind(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="A"
+    )
+    db.add_record(
+        task_id=task.id, kind=RecordKind.FINDING, source_log_id=log.id, summary="B"
+    )
+    decisions = db.list_records(task_id=task.id, kind=RecordKind.DECISION)
+    assert len(decisions) == 1
+    assert decisions[0].summary == "A"
+
+
+def test_list_records_only_for_task(db: TaskDB):
+    """別 task の record は含まれない."""
+    t1 = db.add_task("T1", description="d")
+    t2 = db.add_task("T2", description="d")
+    log1 = db.add_log(t1.id, summary="l")
+    log2 = db.add_log(t2.id, summary="l")
+
+    db.add_record(
+        task_id=t1.id, kind=RecordKind.DECISION, source_log_id=log1.id, summary="A"
+    )
+    db.add_record(
+        task_id=t2.id, kind=RecordKind.DECISION, source_log_id=log2.id, summary="B"
+    )
+    assert len(db.list_records(task_id=t1.id)) == 1
+    assert db.list_records(task_id=t1.id)[0].summary == "A"
+
+
+def test_resolve_record_id_partial(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    full = db.resolve_record_id(rec.id[:6])
+    assert full == rec.id
+
+
+def test_resolve_record_id_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.resolve_record_id("01ZZZZZZ")
+
+
+def test_delete_task_with_record_raises(db: TaskDB):
+    """records が紐づく task は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    with pytest.raises(
+        ValueError, match=r"Cannot delete task .* has associated records"
+    ):
+        db.delete_task(task.id)
+
+
+def test_delete_log_referenced_by_record_raises(db: TaskDB):
+    """record の source_log_id に参照される log は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    with pytest.raises(
+        ValueError, match=r"Cannot delete log .* referenced by a record"
+    ):
+        db.delete_log(log.id)

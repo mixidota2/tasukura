@@ -7,7 +7,7 @@ import typer
 
 from tasukura.config import TkConfig
 from tasukura.db import TaskDB
-from tasukura.models import Task, TaskStatus
+from tasukura.models import RecordKind, RecordStatus, Task, TaskStatus
 
 app = typer.Typer(help="tk - local task management CLI for AI agents")
 
@@ -205,7 +205,11 @@ def delete(task_id: str) -> None:
     """Delete a task and its progress logs."""
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
-        task = db.delete_task(resolved_id)
+        try:
+            task = db.delete_task(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
     typer.echo(f"Deleted: {_short_id(task.id)}  {task.title}")
 
 
@@ -265,6 +269,7 @@ def log(
         if next_action is not None:
             db.update_task(resolved_id, next_action=next_action)
     typer.echo(f"Logged: {entry.summary}")
+    typer.echo(f"ID: {entry.id}")
     if entry.details:
         typer.echo(f"  details: {entry.details}")
     if entry.remaining:
@@ -307,7 +312,11 @@ def log_delete(log_id: str) -> None:
     """Delete a progress log entry."""
     with _get_db() as db:
         resolved_id = _resolve_log_id(db, log_id)
-        entry = db.delete_log(resolved_id)
+        try:
+            entry = db.delete_log(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
     typer.echo(f"Deleted log: {_short_id(entry.id)}  {entry.summary}")
 
 
@@ -451,6 +460,108 @@ def board(
     console.print(table)
 
 
+record_app = typer.Typer(
+    help="Manage typed records (decisions, findings, blockers, ...)"
+)
+app.add_typer(record_app, name="record")
+
+
+@record_app.command("add")
+def record_add(
+    task_id: str,
+    kind: Annotated[
+        str, typer.Option(help="decision / finding / blocker / question / hypothesis")
+    ],
+    log_id: Annotated[
+        str,
+        typer.Option(
+            "--log-id",
+            help="ID of the progress log that serves as raw evidence (required).",
+        ),
+    ],
+    summary: Annotated[str, typer.Option(help="One-line extracted conclusion")],
+    details: Annotated[
+        Optional[str], typer.Option(help="Rationale, scope, constraints")
+    ] = None,
+) -> None:
+    """Add a typed record promoted from a progress log."""
+    parsed_kind = _parse_record_kind(kind)
+    with _get_db() as db:
+        resolved_task_id = _resolve_id(db, task_id)
+        resolved_log_id = _resolve_log_id(db, log_id)
+        try:
+            record = db.add_record(
+                task_id=resolved_task_id,
+                kind=parsed_kind,
+                source_log_id=resolved_log_id,
+                summary=summary,
+                details=details,
+            )
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"ID: {record.id}")
+    typer.echo(f"  kind: {record.kind.value}")
+    typer.echo(f"  status: {record.status.value}")
+    typer.echo(f"  summary: {record.summary}")
+    if record.details:
+        typer.echo(f"  details: {record.details}")
+    typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+
+
+@record_app.command("list")
+def record_list(
+    task_id: str,
+    kind: Annotated[Optional[str], typer.Option(help="Filter to this kind")] = None,
+    all_records: Annotated[
+        bool,
+        typer.Option("--all", help="Include superseded / obsolete / resolved"),
+    ] = False,
+) -> None:
+    """List records for a task. Default shows only active."""
+    parsed_kind = _parse_record_kind(kind) if kind else None
+    with _get_db() as db:
+        resolved_task_id = _resolve_id(db, task_id)
+        records = db.list_records(
+            task_id=resolved_task_id,
+            kind=parsed_kind,
+            include_inactive=all_records,
+        )
+    if not records:
+        typer.echo("No records")
+        return
+    for r in records:
+        status_tag = f" [{r.status.value}]" if r.status != RecordStatus.ACTIVE else ""
+        typer.echo(f"{_short_id(r.id)}  {r.kind.value:<10} {r.summary}{status_tag}")
+
+
+@record_app.command("show")
+def record_show(record_id: str) -> None:
+    """Show a record's full details."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        record = db.get_record(resolved_id)
+        if record is None:
+            typer.echo(f"Record {record_id} not found")
+            raise typer.Exit(1)
+    typer.echo(f"ID: {record.id}")
+    typer.echo(f"  task_id: {_short_id(record.task_id)}")
+    typer.echo(f"  kind: {record.kind.value}")
+    typer.echo(f"  status: {record.status.value}")
+    typer.echo(f"  summary: {record.summary}")
+    if record.details:
+        typer.echo(f"  details: {record.details}")
+    if record.supersedes:
+        typer.echo(f"  supersedes: {_short_id(record.supersedes)}")
+    typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+    if record.resolved_at:
+        typer.echo(f"  resolved_at: {record.resolved_at}")
+    if record.last_verified_at:
+        typer.echo(f"  last_verified_at: {record.last_verified_at}")
+    typer.echo(f"  created: {record.created_at}")
+    typer.echo(f"  updated: {record.updated_at}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:
@@ -466,4 +577,23 @@ def _resolve_log_id(db: TaskDB, partial_id: str) -> str:
         return db.resolve_log_id(partial_id)
     except ValueError as e:
         typer.echo(str(e))
+        raise typer.Exit(1)  # noqa: B904
+
+
+def _resolve_record_id(db: TaskDB, partial_id: str) -> str:
+    """Resolve a partial ID to a full record ID."""
+    try:
+        return db.resolve_record_id(partial_id)
+    except ValueError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)  # noqa: B904
+
+
+def _parse_record_kind(value: str) -> RecordKind:
+    """Parse a record kind string, exiting with a clean error on invalid input."""
+    try:
+        return RecordKind(value)
+    except ValueError:
+        valid = ", ".join(k.value for k in RecordKind)
+        typer.echo(f"Invalid kind: {value!r} (valid: {valid})")
         raise typer.Exit(1)  # noqa: B904

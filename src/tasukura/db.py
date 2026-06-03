@@ -6,9 +6,21 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tasukura.models import ProgressLog, Task, TaskStatus
+from tasukura.models import (
+    ProgressLog,
+    Record,
+    RecordKind,
+    RecordStatus,
+    Task,
+    TaskStatus,
+)
 
 _TASK_COLUMNS = "id, title, description, status, source_id, source, parent_id, next_action, position, created_at, updated_at"
+
+_RECORD_COLUMNS = (
+    "id, task_id, kind, status, summary, details, supersedes, "
+    "source_log_id, resolved_at, last_verified_at, created_at, updated_at"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -32,6 +44,21 @@ CREATE TABLE IF NOT EXISTS progress_logs (
     details    TEXT,
     remaining  TEXT,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS records (
+    id                TEXT PRIMARY KEY,
+    task_id           TEXT NOT NULL REFERENCES tasks(id),
+    kind              TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'active',
+    summary           TEXT NOT NULL,
+    details           TEXT,
+    supersedes        TEXT REFERENCES records(id),
+    source_log_id     TEXT NOT NULL REFERENCES progress_logs(id),
+    resolved_at       TEXT,
+    last_verified_at  TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
 );
 """
 
@@ -110,6 +137,24 @@ class TaskDB:
             position=r[8],
             created_at=r[9],
             updated_at=r[10],
+        )
+
+    @staticmethod
+    def _row_to_record(r: tuple) -> Record:
+        """Convert a database row to a Record. Column order follows _RECORD_COLUMNS."""
+        return Record(
+            id=r[0],
+            task_id=r[1],
+            kind=RecordKind(r[2]),
+            status=RecordStatus(r[3]),
+            summary=r[4],
+            details=r[5],
+            supersedes=r[6],
+            source_log_id=r[7],
+            resolved_at=r[8],
+            last_verified_at=r[9],
+            created_at=r[10],
+            updated_at=r[11],
         )
 
     def _next_position(self) -> int:
@@ -380,10 +425,131 @@ class TaskDB:
         if task is None:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
-        self._conn.execute("DELETE FROM progress_logs WHERE task_id = ?", (task_id,))
-        self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        self._conn.commit()
+        try:
+            self._conn.execute(
+                "DELETE FROM progress_logs WHERE task_id = ?", (task_id,)
+            )
+            self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete task {task_id}: it has associated records. "
+                f"Mark records obsolete first."
+            )
+            raise ValueError(msg) from e
         return task
+
+    def add_record(
+        self,
+        task_id: str,
+        kind: RecordKind,
+        source_log_id: str,
+        summary: str,
+        details: str | None = None,
+        supersedes: str | None = None,
+    ) -> Record:
+        """Add a typed record.
+
+        Args:
+            task_id: The task this record belongs to. Must exist.
+            kind: One of decision / finding / blocker / question / hypothesis.
+            source_log_id: ID of the progress log that serves as raw evidence.
+                Must exist. This is the promotion gate from raw to typed.
+            summary: Extracted conclusion (one line).
+            details: Extracted rationale, scope, constraints. Not raw transcript.
+            supersedes: ID of an older record this one replaces.
+                The older record's status will be set to 'superseded' in Phase 2.
+
+        Raises:
+            ValueError: If task_id or source_log_id is unknown.
+        """
+        if self.get_task(task_id) is None:
+            msg = f"Task {task_id} not found"
+            raise ValueError(msg)
+        if self.get_log(source_log_id) is None:
+            msg = f"Log {source_log_id} not found"
+            raise ValueError(msg)
+        record = Record.new(
+            task_id=task_id,
+            kind=kind,
+            source_log_id=source_log_id,
+            summary=summary,
+            details=details,
+            supersedes=supersedes,
+        )
+        self._conn.execute(
+            f"INSERT INTO records ({_RECORD_COLUMNS}) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.task_id,
+                record.kind.value,
+                record.status.value,
+                record.summary,
+                record.details,
+                record.supersedes,
+                record.source_log_id,
+                record.resolved_at,
+                record.last_verified_at,
+                record.created_at,
+                record.updated_at,
+            ),
+        )
+        self._conn.commit()
+        return record
+
+    def get_record(self, record_id: str) -> Record | None:
+        """Get a record by ID."""
+        row = self._conn.execute(
+            f"SELECT {_RECORD_COLUMNS} FROM records WHERE id = ?", (record_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_record(row)
+
+    def list_records(
+        self,
+        task_id: str,
+        kind: RecordKind | None = None,
+        include_inactive: bool = False,
+    ) -> list[Record]:
+        """List records for a task.
+
+        Args:
+            task_id: Filter to this task.
+            kind: If given, filter to this kind only.
+            include_inactive: If True, include superseded / obsolete / resolved.
+                Default False returns only active records.
+        """
+        query = f"SELECT {_RECORD_COLUMNS} FROM records WHERE task_id = ?"
+        params: list[str] = [task_id]
+        if kind is not None:
+            query += " AND kind = ?"
+            params.append(kind.value)
+        if not include_inactive:
+            query += " AND status = ?"
+            params.append(RecordStatus.ACTIVE.value)
+        query += " ORDER BY created_at ASC"
+        rows = self._conn.execute(query, params).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def resolve_record_id(self, partial_id: str) -> str:
+        """Resolve a partial record ID to a full ID.
+
+        Raises:
+            ValueError: If zero or multiple records match.
+        """
+        rows = self._conn.execute(
+            "SELECT id FROM records WHERE id LIKE ? || '%'", (partial_id,)
+        ).fetchall()
+        if len(rows) == 0:
+            msg = f"Record {partial_id} not found"
+            raise ValueError(msg)
+        if len(rows) > 1:
+            msg = f"Ambiguous record ID: {partial_id} (matches {len(rows)} records)"
+            raise ValueError(msg)
+        return rows[0][0]
 
     def add_log(
         self,
@@ -518,6 +684,14 @@ class TaskDB:
         if log is None:
             msg = f"Log {log_id} not found"
             raise ValueError(msg)
-        self._conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
-        self._conn.commit()
+        try:
+            self._conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete log {log_id}: it is referenced by a record. "
+                f"Delete or supersede the record first."
+            )
+            raise ValueError(msg) from e
         return log

@@ -450,3 +450,273 @@ def _extract_log_id_for_summary(show_output: str, summary: str) -> str:
             return line.strip().split()[0]
     msg = f"Log ID for summary {summary!r} not found in: {show_output}"
     raise ValueError(msg)
+
+
+def test_record_add_requires_log_id():
+    """--log-id なしでは失敗する (promotion gate)."""
+    runner.invoke(app, ["add", "T1", "--description", "d"])
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            "01ANYTASK",
+            "--kind",
+            "decision",
+            "--summary",
+            "S",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_record_add_success():
+    add_out = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(add_out.stdout)
+    log_out = runner.invoke(app, ["log", task_id, "--summary", "raw evidence"])
+    assert log_out.exit_code == 0
+    log_id = _extract_id(log_out.stdout)  # uses the new "ID:" line printed by tk log
+
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "認証にOIDCを採用" in result.stdout
+    assert "decision" in result.stdout
+
+
+def test_record_add_invalid_kind():
+    add_out = runner.invoke(app, ["add", "T1", "--description", "d"])
+    task_id = _extract_id(add_out.stdout)
+    log_out = runner.invoke(app, ["log", task_id, "--summary", "l"])
+    log_id = _extract_id(log_out.stdout)
+
+    result = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "garbage",
+            "--log-id",
+            log_id,
+            "--summary",
+            "S",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_record_list_empty():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    result = runner.invoke(app, ["record", "list", task_id])
+    assert result.exit_code == 0
+    assert "No records" in result.stdout
+
+
+def test_record_list_with_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "Library X はPy3.11で停止",
+        ],
+    )
+    result = runner.invoke(app, ["record", "list", task_id])
+    assert result.exit_code == 0
+    assert "認証にOIDCを採用" in result.stdout
+    assert "Library X" in result.stdout
+
+
+def test_record_list_filter_by_kind():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "decision-only",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "finding-only",
+        ],
+    )
+    result = runner.invoke(app, ["record", "list", task_id, "--kind", "decision"])
+    assert result.exit_code == 0
+    assert "decision-only" in result.stdout
+    assert "finding-only" not in result.stdout
+
+
+def test_record_show_basic():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(
+        runner.invoke(app, ["log", task_id, "--summary", "raw"]).stdout
+    )
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+            "--details",
+            "判断軸: メンテコスト",
+        ],
+    )
+    record_id = _extract_id(add_out.stdout)
+
+    result = runner.invoke(app, ["record", "show", record_id])
+    assert result.exit_code == 0, result.stdout
+    assert "認証にOIDCを採用" in result.stdout
+    assert "判断軸: メンテコスト" in result.stdout
+    assert "decision" in result.stdout
+    assert "active" in result.stdout
+    # Reference back to the source log
+    assert log_id[:6] in result.stdout
+
+
+def test_record_show_partial_id():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "partial-marker",
+        ],
+    )
+    record_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "show", record_id[:8]])
+    assert result.exit_code == 0
+    assert "partial-marker" in result.stdout
+
+
+def test_record_show_not_found():
+    result = runner.invoke(app, ["record", "show", "01ZZZZZZ"])
+    assert result.exit_code != 0
+
+
+def test_cli_delete_task_with_record_clean_error():
+    """tk delete でrecordを持つtaskを消すと、tracebackではなくクリーンなエラーが出る."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blocker-test",
+        ],
+    )
+    result = runner.invoke(app, ["delete", task_id])
+    assert result.exit_code != 0
+    assert "Cannot delete task" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_cli_delete_log_referenced_by_record_clean_error():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blocker-test",
+        ],
+    )
+    result = runner.invoke(app, ["log-delete", log_id])
+    assert result.exit_code != 0
+    assert "Cannot delete log" in result.stdout
+    assert "Traceback" not in result.stdout

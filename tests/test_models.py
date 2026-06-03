@@ -1,4 +1,11 @@
-from tasukura.models import Task, ProgressLog, TaskStatus
+from tasukura.models import (
+    Task,
+    ProgressLog,
+    TaskStatus,
+    Record,
+    RecordKind,
+    RecordStatus,
+)
 
 
 def test_task_creation():
@@ -52,3 +59,51 @@ def test_task_status_values():
     assert TaskStatus.IN_PROGRESS == "in_progress"
     assert TaskStatus.IN_REVIEW == "in_review"
     assert TaskStatus.DONE == "done"
+
+
+def test_record_new_defaults():
+    record = Record.new(
+        task_id="01ABC",
+        kind=RecordKind.DECISION,
+        source_log_id="01LOG",
+        summary="認証にOIDCを採用",
+    )
+    assert record.task_id == "01ABC"
+    assert record.kind == RecordKind.DECISION
+    assert record.source_log_id == "01LOG"
+    assert record.summary == "認証にOIDCを採用"
+    assert record.status == RecordStatus.ACTIVE
+    assert record.details is None
+    assert record.supersedes is None
+    assert record.resolved_at is None
+    assert record.last_verified_at is None
+    assert record.created_at == record.updated_at
+    assert len(record.id) == 26  # ULID length
+
+
+def test_record_new_with_optional_fields():
+    record = Record.new(
+        task_id="01ABC",
+        kind=RecordKind.FINDING,
+        source_log_id="01LOG",
+        summary="Library X stops on Py3.11",
+        details="reproduction: ...",
+        supersedes="01OLD",
+    )
+    assert record.details == "reproduction: ..."
+    assert record.supersedes == "01OLD"
+
+
+def test_record_kind_values():
+    assert RecordKind.DECISION.value == "decision"
+    assert RecordKind.FINDING.value == "finding"
+    assert RecordKind.BLOCKER.value == "blocker"
+    assert RecordKind.QUESTION.value == "question"
+    assert RecordKind.HYPOTHESIS.value == "hypothesis"
+
+
+def test_record_status_values():
+    assert RecordStatus.ACTIVE.value == "active"
+    assert RecordStatus.SUPERSEDED.value == "superseded"
+    assert RecordStatus.OBSOLETE.value == "obsolete"
+    assert RecordStatus.RESOLVED.value == "resolved"
