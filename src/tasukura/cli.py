@@ -600,6 +600,20 @@ def record_update(
         typer.echo(f"  details: {record.details}")
 
 
+@record_app.command("resolve")
+def record_resolve(record_id: str) -> None:
+    """Mark a blocker record as resolved."""
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.resolve_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Resolved: {_short_id(record.id)}  {record.summary}")
+    typer.echo(f"  resolved_at: {record.resolved_at}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:

@@ -657,3 +657,34 @@ def test_update_record_clear_details_with_empty_string(db: TaskDB):
 def test_update_record_not_found(db: TaskDB):
     with pytest.raises(ValueError, match=r"Record .* not found"):
         db.update_record("01NOTHING" + "X" * 17, summary="x")
+
+
+def test_resolve_record_blocker(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.BLOCKER,
+        source_log_id=log.id,
+        summary="CI flaky",
+    )
+    resolved = db.resolve_record(rec.id)
+    assert resolved.status == RecordStatus.RESOLVED
+    assert resolved.resolved_at is not None
+    assert resolved.resolved_at >= rec.created_at
+
+
+def test_resolve_record_non_blocker_raises(db: TaskDB):
+    """blocker 以外を resolve しようとするとエラー."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    with pytest.raises(ValueError, match="Only blocker"):
+        db.resolve_record(rec.id)
+
+
+def test_resolve_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.resolve_record("01NOTHING" + "X" * 17)
