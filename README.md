@@ -57,22 +57,22 @@ tk list --source jira
 |---------|-------------|
 | `tk add` | Add a new task |
 | `tk list` | List tasks (tree view by default) |
-| `tk update` | Update task fields |
-| `tk delete` | Delete a task and its progress logs |
+| `tk update` | Update task title or external source linkage. For `next_action` or `description` use `tk log` |
+| `tk delete` | Delete a task (fails cleanly if records exist) |
 | `tk status` | Change task status (todo/in_progress/in_review/done) |
-| `tk log` | Record a progress log entry |
+| `tk log` | Record progress. `--next-action "X"` updates task and persists as log history; `--description "X"` updates task description |
 | `tk log-update` | Update an existing progress log entry |
-| `tk log-delete` | Delete a progress log entry |
+| `tk log-delete` | Delete a progress log (fails cleanly if a record references it) |
 | `tk record add` | Add a typed record (decision/finding/blocker/question/hypothesis) promoted from a log; `--supersedes <id>` to replace an older record |
 | `tk record list` | List records for a task (active by default) |
-| `tk record show` | Show a record's full details |
+| `tk record show` | Show a record's full details; `--with-log` also dereferences the source progress log |
 | `tk record update` | Update a record's summary or details (typo / 補足 only; use `--supersedes` on add for semantic changes) |
 | `tk record resolve` | Mark a blocker record as resolved |
 | `tk record obsolete` | Mark a record as obsolete (no replacement) |
 | `tk record verify` | Mark a record as verified (update last_verified_at) |
 | `tk rank` | Change display order |
 | `tk board` | Kanban board view |
-| `tk show` | Show task details and progress logs |
+| `tk show` | Show task details, active records grouped by kind, and recent logs. `--full` / `--kind X` / `--logs N` to vary |
 
 Task IDs can be shortened — type just enough characters to uniquely identify a task.
 
@@ -87,9 +87,21 @@ db_path = "~/custom/path/tasks.db"
 [board]
 # Retention days for done tasks (default: 14)
 done_retention_days = 14
+
+[record]
+# Mark active records older than this (no verify) as [stale] in `tk show`
+stale_after_days = 30
+
+[record.active_warn]
+# `tk show` warns when active records of a kind exceed these counts
+decision = 10
+blocker = 3
+finding = 10
+question = 10
+hypothesis = 10
 ```
 
-The environment variable `TK_DB_PATH` overrides the database path.
+The environment variable `TK_DB_PATH` overrides the database path. `TK_CONFIG_PATH` overrides the config file location.
 
 ## Claude Code Skill
 
