@@ -430,6 +430,65 @@ class TaskDB:
         self._conn.commit()
         return task
 
+    def add_record(
+        self,
+        task_id: str,
+        kind: RecordKind,
+        source_log_id: str,
+        summary: str,
+        details: str | None = None,
+        supersedes: str | None = None,
+    ) -> Record:
+        """Add a typed record.
+
+        Args:
+            task_id: The task this record belongs to. Must exist.
+            kind: One of decision / finding / blocker / question / hypothesis.
+            source_log_id: ID of the progress log that serves as raw evidence.
+                Must exist. This is the promotion gate from raw to typed.
+            summary: Extracted conclusion (one line).
+            details: Extracted rationale, scope, constraints. Not raw transcript.
+            supersedes: ID of an older record this one replaces.
+                The older record's status will be set to 'superseded' in Phase 2.
+
+        Raises:
+            ValueError: If task_id or source_log_id is unknown.
+        """
+        if self.get_task(task_id) is None:
+            msg = f"Task not found: {task_id}"
+            raise ValueError(msg)
+        if self.get_log(source_log_id) is None:
+            msg = f"Log not found: {source_log_id}"
+            raise ValueError(msg)
+        record = Record.new(
+            task_id=task_id,
+            kind=kind,
+            source_log_id=source_log_id,
+            summary=summary,
+            details=details,
+            supersedes=supersedes,
+        )
+        self._conn.execute(
+            f"INSERT INTO records ({_RECORD_COLUMNS}) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.task_id,
+                record.kind.value,
+                record.status.value,
+                record.summary,
+                record.details,
+                record.supersedes,
+                record.source_log_id,
+                record.resolved_at,
+                record.last_verified_at,
+                record.created_at,
+                record.updated_at,
+            ),
+        )
+        self._conn.commit()
+        return record
+
     def add_log(
         self,
         task_id: str,
