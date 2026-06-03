@@ -559,6 +559,48 @@ class TaskDB:
             raise ValueError(msg)
         return rows[0][0]
 
+    def update_record(
+        self,
+        record_id: str,
+        summary: str | None = None,
+        details: str | None = None,
+    ) -> Record:
+        """Update record fields. Only specified fields are updated.
+
+        Pass an empty string to clear ``details``. Use ``add_record(..., supersedes=...)``
+        for semantic changes — this method is for typo / 補足 only.
+
+        Raises:
+            ValueError: If record_id is unknown.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        updates: list[str] = []
+        params: list[str] = []
+        if summary is not None:
+            updates.append("summary = ?")
+            params.append(summary)
+        if details is not None:
+            updates.append("details = ?")
+            params.append(details)
+        if not updates:
+            return record
+        now = datetime.now(timezone.utc).isoformat()
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(record_id)
+        self._conn.execute(
+            f"UPDATE records SET {', '.join(updates)} WHERE id = ?", params
+        )
+        self._conn.commit()
+        updated = self.get_record(record_id)
+        if updated is None:
+            msg = f"Record {record_id} unexpectedly missing after update"
+            raise RuntimeError(msg)
+        return updated
+
     def add_log(
         self,
         task_id: str,

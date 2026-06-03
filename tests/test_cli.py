@@ -805,3 +805,63 @@ def test_record_add_supersedes_partial_id():
         ],
     )
     assert new_out.exit_code == 0
+
+
+def test_record_update_summary_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "before-edit",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "update", rec_id, "--summary", "after-edit"])
+    assert result.exit_code == 0, result.stdout
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "after-edit" in show.stdout
+    assert "before-edit" not in show.stdout
+
+
+def test_record_update_clear_details():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "S",
+            "--details",
+            "initial-details",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "update", rec_id, "--details", ""])
+    assert result.exit_code == 0
+    show = runner.invoke(app, ["record", "show", rec_id])
+    assert "initial-details" not in show.stdout
+
+
+def test_record_update_not_found():
+    result = runner.invoke(app, ["record", "update", "01ZZZZZZ", "--summary", "x"])
+    assert result.exit_code != 0

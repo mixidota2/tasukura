@@ -598,3 +598,62 @@ def test_add_record_supersedes_unknown_raises(db: TaskDB):
             summary="新",
             supersedes="01NONEXISTENT" + "A" * 13,
         )
+
+
+def test_update_record_summary(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="old"
+    )
+    updated = db.update_record(rec.id, summary="new")
+    assert updated.summary == "new"
+    assert updated.details == rec.details
+    assert updated.updated_at >= rec.updated_at
+
+
+def test_update_record_details_only(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+        details="initial",
+    )
+    updated = db.update_record(rec.id, details="appended")
+    assert updated.summary == "S"
+    assert updated.details == "appended"
+
+
+def test_update_record_no_changes_returns_record(db: TaskDB):
+    """summary も details も None なら現状を返す."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id, kind=RecordKind.DECISION, source_log_id=log.id, summary="S"
+    )
+    same = db.update_record(rec.id)
+    assert same.id == rec.id
+    assert same.summary == rec.summary
+    assert same.updated_at == rec.updated_at
+
+
+def test_update_record_clear_details_with_empty_string(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+        details="initial",
+    )
+    cleared = db.update_record(rec.id, details="")
+    assert cleared.details == ""
+
+
+def test_update_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.update_record("01NOTHING" + "X" * 17, summary="x")

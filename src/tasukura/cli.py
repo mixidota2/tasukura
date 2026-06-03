@@ -573,6 +573,33 @@ def record_show(record_id: str) -> None:
     typer.echo(f"  updated: {record.updated_at}")
 
 
+@record_app.command("update")
+def record_update(
+    record_id: str,
+    summary: Annotated[Optional[str], typer.Option(help="New one-line summary")] = None,
+    details: Annotated[
+        Optional[str],
+        typer.Option(
+            help="New details (empty string clears). Use --supersedes on add for semantic changes."
+        ),
+    ] = None,
+) -> None:
+    """Update a record's summary or details (typo / 補足 only).
+
+    For semantic changes, prefer ``tk record add --supersedes <id> ...``.
+    """
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.update_record(resolved_id, summary=summary, details=details)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Updated record: {_short_id(record.id)}  {record.summary}")
+    if record.details is not None:
+        typer.echo(f"  details: {record.details}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:
