@@ -46,3 +46,42 @@ def test_partial_toml(tmp_path: Path):
     config = TkConfig.load(config_path=config_file)
     assert config.db_path == DEFAULT_DB_PATH
     assert config.done_retention_days == 3
+
+
+def test_config_record_defaults(tmp_path: Path):
+    """recordセクションがないときはデフォルト値が使われる."""
+    config = TkConfig.load(config_path=tmp_path / "nonexistent.toml")
+    assert config.stale_after_days == 30
+    assert config.active_warn_thresholds == {
+        "decision": 10,
+        "blocker": 3,
+        "finding": 10,
+        "question": 10,
+        "hypothesis": 10,
+    }
+
+
+def test_config_record_overrides(tmp_path: Path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[record]\n"
+        "stale_after_days = 7\n"
+        "\n"
+        "[record.active_warn]\n"
+        "decision = 5\n"
+        "blocker = 2\n"
+    )
+    config = TkConfig.load(config_path=config_file)
+    assert config.stale_after_days == 7
+    assert config.active_warn_thresholds["decision"] == 5
+    assert config.active_warn_thresholds["blocker"] == 2
+    assert config.active_warn_thresholds["finding"] == 10
+
+
+def test_env_overrides_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """TK_CONFIG_PATH 環境変数で明示パス指定."""
+    env_file = tmp_path / "env-config.toml"
+    env_file.write_text("[record]\nstale_after_days = 99\n")
+    monkeypatch.setenv("TK_CONFIG_PATH", str(env_file))
+    config = TkConfig.load()
+    assert config.stale_after_days == 99
