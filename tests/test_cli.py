@@ -669,3 +669,54 @@ def test_record_show_partial_id():
 def test_record_show_not_found():
     result = runner.invoke(app, ["record", "show", "01ZZZZZZ"])
     assert result.exit_code != 0
+
+
+def test_cli_delete_task_with_record_clean_error():
+    """tk delete でrecordを持つtaskを消すと、tracebackではなくクリーンなエラーが出る."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blocker-test",
+        ],
+    )
+    result = runner.invoke(app, ["delete", task_id])
+    assert result.exit_code != 0
+    assert "Cannot delete task" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_cli_delete_log_referenced_by_record_clean_error():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "blocker-test",
+        ],
+    )
+    result = runner.invoke(app, ["log-delete", log_id])
+    assert result.exit_code != 0
+    assert "Cannot delete log" in result.stdout
+    assert "Traceback" not in result.stdout

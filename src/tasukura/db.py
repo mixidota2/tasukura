@@ -425,9 +425,19 @@ class TaskDB:
         if task is None:
             msg = f"Task {task_id} not found"
             raise ValueError(msg)
-        self._conn.execute("DELETE FROM progress_logs WHERE task_id = ?", (task_id,))
-        self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        self._conn.commit()
+        try:
+            self._conn.execute(
+                "DELETE FROM progress_logs WHERE task_id = ?", (task_id,)
+            )
+            self._conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete task {task_id}: it has associated records. "
+                f"Mark records obsolete first."
+            )
+            raise ValueError(msg) from e
         return task
 
     def add_record(
@@ -674,6 +684,14 @@ class TaskDB:
         if log is None:
             msg = f"Log {log_id} not found"
             raise ValueError(msg)
-        self._conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
-        self._conn.commit()
+        try:
+            self._conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete log {log_id}: it is referenced by a record. "
+                f"Delete or supersede the record first."
+            )
+            raise ValueError(msg) from e
         return log

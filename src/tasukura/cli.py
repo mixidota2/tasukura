@@ -205,7 +205,11 @@ def delete(task_id: str) -> None:
     """Delete a task and its progress logs."""
     with _get_db() as db:
         resolved_id = _resolve_id(db, task_id)
-        task = db.delete_task(resolved_id)
+        try:
+            task = db.delete_task(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
     typer.echo(f"Deleted: {_short_id(task.id)}  {task.title}")
 
 
@@ -308,7 +312,11 @@ def log_delete(log_id: str) -> None:
     """Delete a progress log entry."""
     with _get_db() as db:
         resolved_id = _resolve_log_id(db, log_id)
-        entry = db.delete_log(resolved_id)
+        try:
+            entry = db.delete_log(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
     typer.echo(f"Deleted log: {_short_id(entry.id)}  {entry.summary}")
 
 

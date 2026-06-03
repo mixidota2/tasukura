@@ -528,3 +528,35 @@ def test_resolve_record_id_partial(db: TaskDB):
 def test_resolve_record_id_not_found(db: TaskDB):
     with pytest.raises(ValueError, match=r"Record .* not found"):
         db.resolve_record_id("01ZZZZZZ")
+
+
+def test_delete_task_with_record_raises(db: TaskDB):
+    """records が紐づく task は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    with pytest.raises(
+        ValueError, match=r"Cannot delete task .* has associated records"
+    ):
+        db.delete_task(task.id)
+
+
+def test_delete_log_referenced_by_record_raises(db: TaskDB):
+    """record の source_log_id に参照される log は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="S",
+    )
+    with pytest.raises(
+        ValueError, match=r"Cannot delete log .* referenced by a record"
+    ):
+        db.delete_log(log.id)
