@@ -63,9 +63,13 @@ tk list --source jira
 | `tk log` | Record a progress log entry |
 | `tk log-update` | Update an existing progress log entry |
 | `tk log-delete` | Delete a progress log entry |
-| `tk record add` | Add a typed record (decision/finding/blocker/question/hypothesis) promoted from a log |
+| `tk record add` | Add a typed record (decision/finding/blocker/question/hypothesis) promoted from a log; `--supersedes <id>` to replace an older record |
 | `tk record list` | List records for a task (active by default) |
 | `tk record show` | Show a record's full details |
+| `tk record update` | Update a record's summary or details (typo / 補足 only; use `--supersedes` on add for semantic changes) |
+| `tk record resolve` | Mark a blocker record as resolved |
+| `tk record obsolete` | Mark a record as obsolete (no replacement) |
+| `tk record verify` | Mark a record as verified (update last_verified_at) |
 | `tk rank` | Change display order |
 | `tk board` | Kanban board view |
 | `tk show` | Show task details and progress logs |
