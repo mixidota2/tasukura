@@ -7,7 +7,7 @@ import typer
 
 from tasukura.config import TkConfig
 from tasukura.db import TaskDB
-from tasukura.models import RecordKind, RecordStatus, Task, TaskStatus
+from tasukura.models import Record, RecordKind, RecordStatus, Task, TaskStatus
 
 app = typer.Typer(help="tk - local task management CLI for AI agents")
 
@@ -41,6 +41,32 @@ def _short_id(task_id: str) -> str:
     so 12 characters include 2 random characters for disambiguation.
     """
     return task_id[:12]
+
+
+_STALE_AFTER_DAYS_DEFAULT = 30
+_ACTIVE_WARN_DEFAULTS = {
+    "decision": 10,
+    "blocker": 3,
+    "finding": 10,
+    "question": 10,
+    "hypothesis": 10,
+}
+
+
+def _is_stale(record: Record, stale_after_days: int) -> bool:
+    """Return True if the record's freshness reference timestamp is older than threshold.
+
+    Uses ``last_verified_at`` if set, otherwise ``created_at``.
+    """
+    reference = record.last_verified_at or record.created_at
+    try:
+        ref_dt = datetime.fromisoformat(reference)
+    except ValueError:
+        return False
+    if ref_dt.tzinfo is None:
+        ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - ref_dt
+    return age.days >= stale_after_days
 
 
 def _parse_status(value: str) -> TaskStatus:
