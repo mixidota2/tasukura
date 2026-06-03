@@ -7,7 +7,7 @@ import typer
 
 from tasukura.config import TkConfig
 from tasukura.db import TaskDB
-from tasukura.models import RecordKind, Task, TaskStatus
+from tasukura.models import RecordKind, RecordStatus, Task, TaskStatus
 
 app = typer.Typer(help="tk - local task management CLI for AI agents")
 
@@ -499,6 +499,32 @@ def record_add(
     if record.details:
         typer.echo(f"  details: {record.details}")
     typer.echo(f"  source_log_id: {_short_id(record.source_log_id)}")
+
+
+@record_app.command("list")
+def record_list(
+    task_id: str,
+    kind: Annotated[Optional[str], typer.Option(help="Filter to this kind")] = None,
+    all_records: Annotated[
+        bool,
+        typer.Option("--all", help="Include superseded / obsolete / resolved"),
+    ] = False,
+) -> None:
+    """List records for a task. Default shows only active."""
+    parsed_kind = _parse_record_kind(kind) if kind else None
+    with _get_db() as db:
+        resolved_task_id = _resolve_id(db, task_id)
+        records = db.list_records(
+            task_id=resolved_task_id,
+            kind=parsed_kind,
+            include_inactive=all_records,
+        )
+    if not records:
+        typer.echo("No records")
+        return
+    for r in records:
+        status_tag = f" [{r.status.value}]" if r.status != RecordStatus.ACTIVE else ""
+        typer.echo(f"{_short_id(r.id)}  {r.kind.value:<10} {r.summary}{status_tag}")
 
 
 def _resolve_id(db: TaskDB, partial_id: str) -> str:

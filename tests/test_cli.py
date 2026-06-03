@@ -517,3 +517,90 @@ def test_record_add_invalid_kind():
         ],
     )
     assert result.exit_code != 0
+
+
+def test_record_list_empty():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    result = runner.invoke(app, ["record", "list", task_id])
+    assert result.exit_code == 0
+    assert "No records" in result.stdout
+
+
+def test_record_list_with_records():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "認証にOIDCを採用",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "Library X はPy3.11で停止",
+        ],
+    )
+    result = runner.invoke(app, ["record", "list", task_id])
+    assert result.exit_code == 0
+    assert "認証にOIDCを採用" in result.stdout
+    assert "Library X" in result.stdout
+
+
+def test_record_list_filter_by_kind():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "decision-only",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "finding",
+            "--log-id",
+            log_id,
+            "--summary",
+            "finding-only",
+        ],
+    )
+    result = runner.invoke(app, ["record", "list", task_id, "--kind", "decision"])
+    assert result.exit_code == 0
+    assert "decision-only" in result.stdout
+    assert "finding-only" not in result.stdout
