@@ -1345,3 +1345,80 @@ def test_record_show_with_log_dereferences_evidence():
     with_log = runner.invoke(app, ["record", "show", rec_id, "--with-log"]).stdout
     assert "log-summary-line" in with_log
     assert "log-details-body" in with_log
+
+
+def test_record_delete_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "del-me",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "delete", rec_id])
+    assert result.exit_code == 0, result.stdout
+    assert "Deleted record:" in result.stdout
+    assert "del-me" in result.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "del-me" not in list_all.stdout
+
+
+def test_record_delete_not_found():
+    result = runner.invoke(app, ["record", "delete", "01ZZZZZZ"])
+    assert result.exit_code != 0
+
+
+def test_record_delete_referenced_by_supersedes_rejects():
+    """supersedes で参照されている record は削除拒否."""
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    old_id = _extract_id(
+        runner.invoke(
+            app,
+            [
+                "record",
+                "add",
+                task_id,
+                "--kind",
+                "decision",
+                "--log-id",
+                log_id,
+                "--summary",
+                "old",
+            ],
+        ).stdout
+    )
+    runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "decision",
+            "--log-id",
+            log_id,
+            "--summary",
+            "new",
+            "--supersedes",
+            old_id,
+        ],
+    )
+    result = runner.invoke(app, ["record", "delete", old_id])
+    assert result.exit_code != 0
+    assert "Cannot delete record" in result.stdout
+    assert "obsolete" in result.stdout

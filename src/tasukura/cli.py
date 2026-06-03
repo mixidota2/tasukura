@@ -783,6 +783,24 @@ def record_verify(record_id: str) -> None:
     typer.echo(f"  last_verified_at: {record.last_verified_at}")
 
 
+@record_app.command("delete")
+def record_delete(record_id: str) -> None:
+    """Delete a record permanently.
+
+    Use ``tk record obsolete`` if you want to keep the record in history.
+    Delete is for clearly mistaken records (typos, duplicates, test data).
+    Fails cleanly if another record's ``supersedes`` references this one.
+    """
+    with _get_db() as db:
+        resolved_id = _resolve_record_id(db, record_id)
+        try:
+            record = db.delete_record(resolved_id)
+        except ValueError as e:
+            typer.echo(str(e))
+            raise typer.Exit(1) from e
+    typer.echo(f"Deleted record: {_short_id(record.id)}  {record.summary}")
+
+
 def _resolve_id(db: TaskDB, partial_id: str) -> str:
     """Resolve a partial ID to a full task ID."""
     try:

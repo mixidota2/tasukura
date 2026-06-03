@@ -677,6 +677,32 @@ class TaskDB:
             raise RuntimeError(msg)
         return updated
 
+    def delete_record(self, record_id: str) -> Record:
+        """Delete a record.
+
+        Use ``obsolete_record`` if you want the record to survive in history.
+        Delete is for clearly mistaken records (typos, duplicates, test data).
+
+        Raises:
+            ValueError: If the record is not found, or if another record's
+                ``supersedes`` references it.
+        """
+        record = self.get_record(record_id)
+        if record is None:
+            msg = f"Record {record_id} not found"
+            raise ValueError(msg)
+        try:
+            self._conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            self._conn.rollback()
+            msg = (
+                f"Cannot delete record {record_id}: it is referenced by another "
+                f"record's supersedes. Use 'tk record obsolete' instead."
+            )
+            raise ValueError(msg) from e
+        return record
+
     def add_log(
         self,
         task_id: str,

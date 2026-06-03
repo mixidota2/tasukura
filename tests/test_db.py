@@ -766,3 +766,43 @@ def test_add_log_with_next_action_set_persists(db: TaskDB):
     fetched = db.get_log(log.id)
     assert fetched is not None
     assert fetched.next_action_set == "次の手"
+
+
+def test_delete_record(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="to-delete",
+    )
+    deleted = db.delete_record(rec.id)
+    assert deleted.id == rec.id
+    assert db.get_record(rec.id) is None
+
+
+def test_delete_record_not_found(db: TaskDB):
+    with pytest.raises(ValueError, match=r"Record .* not found"):
+        db.delete_record("01NOTHING" + "X" * 17)
+
+
+def test_delete_record_referenced_by_supersedes_raises(db: TaskDB):
+    """supersedes で参照されている record は削除できない."""
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    old = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="old",
+    )
+    db.add_record(
+        task_id=task.id,
+        kind=RecordKind.DECISION,
+        source_log_id=log.id,
+        summary="new",
+        supersedes=old.id,
+    )
+    with pytest.raises(ValueError, match=r"Cannot delete record"):
+        db.delete_record(old.id)
