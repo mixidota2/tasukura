@@ -18,6 +18,10 @@ build/
 .vscode/
 *.swp
 
+# Local agent files
+.claude/
+docs/
+
 # Environment
 .env
 .env.*
