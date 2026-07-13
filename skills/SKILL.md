@@ -220,6 +220,34 @@ When to write without an explicit user instruction:
 **Decision order**: always write the log first → ask "is this worth re-reading next session?"
 → if yes, promote it to a record.
 
+### Final record audit
+
+Before the final response after any tk-tracked work, explicitly check whether this
+turn created or changed durable typed memory:
+
+1. Did this turn create, finalize, or materially change a design decision, policy,
+   or constraint?
+2. Did an investigation confirm a reusable fact that future sessions should know?
+3. Did a blocker appear, resolve, or materially change?
+4. Did this turn leave an explicit open question or operating hypothesis that future
+   work should track?
+5. Did any existing active record become outdated, need verification, or require a
+   semantic replacement?
+
+If yes to any item:
+
+1. Ensure the relevant raw evidence exists in `tk log`.
+2. Run `tk record list <task_id> --kind <X>` for the relevant kind before adding or
+   changing typed memory.
+3. Use `tk record add ... --log-id <log_id>` for new durable memory.
+4. Use `tk record add ... --supersedes <old_id> --log-id <log_id>` for semantic
+   replacements.
+5. Use `tk record resolve`, `tk record obsolete`, or `tk record verify` when the
+   existing record's lifecycle changed without new replacement content.
+
+If no record action is needed after writing a meaningful `tk log`, internally note
+the reason using the cardinality rule: most logs do not become records.
+
 ### Handling `[stale]`
 
 When you see a `[stale]` marker:
