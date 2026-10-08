@@ -106,24 +106,15 @@ The environment variable `TK_DB_PATH` overrides the database path. `TK_CONFIG_PA
 
 ## Agent Skill
 
-The `tk` skill is maintained separately in
+The `tk` skill is maintained in
 [tasukura-skills](https://github.com/mixidota2/tasukura-skills).
-See its [installation and migration guide](https://github.com/mixidota2/tasukura-skills#install)
-for Claude Code and Codex setup. Install the `tasukura` CLI from this repository
-or PyPI as usual; the skill repository does not include the CLI.
+See the [skill setup guide](skills/README.md) for installation and migration to
+that repository's Claude Code or Codex skill.
 
-The bundled [skills/SKILL.md](skills/SKILL.md) is retained as a compatibility
-snapshot so existing symlinks continue to work. New skill changes belong in
-`tasukura-skills`. An existing installation can still use the bundled snapshot:
-
-```bash
-mkdir -p ~/.claude/skills
-# Only run this if ~/.claude/skills/tk does not already exist.
-ln -s /path/to/tasukura/skills ~/.claude/skills/tk
-```
-
-To receive future skill updates, migrate using the separate repository's guide.
-This changes only the skill installation, not your task database or CLI configuration.
+The bundled `skills/SKILL.md` has been removed. Existing agent symlinks pointing
+to this repository's `skills/` directory must be migrated: the old directory no
+longer contains an installable skill. The guide explains how to update safely.
+CLI installation, task data, and CLI configuration are unchanged.
 
 ## Development
 
