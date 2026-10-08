@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.7...tasukura-v0.1.8) (2026-10-08)
+
+
+### Documentation
+
+* Move bundled skill to tasukura-skills ([#24](https://github.com/mixidota2/tasukura/issues/24)) ([ddc90bd](https://github.com/mixidota2/tasukura/commit/ddc90bd55dd828d6955e0ebec23e72dd833d4c25))
+
 ## [0.1.7](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.6...tasukura-v0.1.7) (2026-06-03)
 
 
