@@ -104,16 +104,17 @@ hypothesis = 10
 
 The environment variable `TK_DB_PATH` overrides the database path. `TK_CONFIG_PATH` overrides the config file location.
 
-## Claude Code Skill
+## Agent Skill
 
-The `skills/` directory contains a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill file for AI agent integration.
+The `tk` skill is maintained in
+[tasukura-skills](https://github.com/mixidota2/tasukura-skills).
+See the [skill setup guide](skills/README.md) for installation and migration to
+that repository's Claude Code or Codex skill.
 
-```bash
-# Install the skill (symlink recommended)
-ln -s /path/to/tasukura/skills ~/.claude/skills/tk
-```
-
-See [skills/SKILL.md](skills/SKILL.md) for details.
+The bundled `skills/SKILL.md` has been removed. Existing agent symlinks pointing
+to this repository's `skills/` directory must be migrated: the old directory no
+longer contains an installable skill. The guide explains how to update safely.
+CLI installation, task data, and CLI configuration are unchanged.
 
 ## Development
 
