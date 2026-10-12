@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.8...tasukura-v0.1.9) (2026-10-12)
+
+
+### Bug Fixes
+
+* Keep release lock metadata consistent ([#26](https://github.com/mixidota2/tasukura/issues/26)) ([9740c54](https://github.com/mixidota2/tasukura/commit/9740c54c1a17ac5e8e7a8c59823f5aeee402f6a0))
+
 ## [0.1.8](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.7...tasukura-v0.1.8) (2026-10-08)
 
 
