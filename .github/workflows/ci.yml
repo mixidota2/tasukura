@@ -8,6 +8,8 @@ on:
       - "tests/**"
       - "pyproject.toml"
       - "uv.lock"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
@@ -16,7 +18,13 @@ on:
       - "tests/**"
       - "pyproject.toml"
       - "uv.lock"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
       - ".github/workflows/ci.yml"
+
+env:
+  # Fail on stale project metadata instead of silently rewriting uv.lock.
+  UV_LOCKED: "true"
 
 jobs:
   test:
