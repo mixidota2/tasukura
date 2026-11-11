@@ -109,7 +109,7 @@ class RecordStatus(str, enum.Enum):
     ACTIVE = "active"
     SUPERSEDED = "superseded"
     OBSOLETE = "obsolete"
-    RESOLVED = "resolved"  # blocker only
+    RESOLVED = "resolved"  # blocker / question only
 
 
 @dataclass(frozen=True)

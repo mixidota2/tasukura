@@ -806,3 +806,34 @@ def test_delete_record_referenced_by_supersedes_raises(db: TaskDB):
     )
     with pytest.raises(ValueError, match=r"Cannot delete record"):
         db.delete_record(old.id)
+
+
+def test_resolve_record_question(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    log = db.add_log(task.id, summary="l")
+    rec = db.add_record(
+        task_id=task.id,
+        kind=RecordKind.QUESTION,
+        source_log_id=log.id,
+        summary="Which API?",
+    )
+    resolved = db.resolve_record(rec.id)
+    assert resolved.status == RecordStatus.RESOLVED
+    assert resolved.resolved_at is not None
+
+
+def test_list_logs_across_tasks_oldest_first(db: TaskDB):
+    first = db.add_task("T1", description="d")
+    second = db.add_task("T2", description="d")
+    log_a = db.add_log(first.id, summary="a")
+    log_b = db.add_log(second.id, summary="b")
+    assert [entry.id for entry in db.list_logs()] == [log_a.id, log_b.id]
+
+
+def test_list_logs_since_and_limit(db: TaskDB):
+    task = db.add_task("T1", description="d")
+    db.add_log(task.id, summary="a")
+    log_b = db.add_log(task.id, summary="b")
+    assert [entry.id for entry in db.list_logs(since=log_b.created_at)] == [log_b.id]
+    assert [entry.id for entry in db.list_logs(limit=1)] == [log_b.id]
+    assert db.list_logs(since="2999-01-01T00:00:00+00:00") == []

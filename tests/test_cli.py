@@ -1422,3 +1422,133 @@ def test_record_delete_referenced_by_supersedes_rejects():
     assert result.exit_code != 0
     assert "Cannot delete record" in result.stdout
     assert "obsolete" in result.stdout
+
+
+def test_board_orders_cards_by_tree_order():
+    """子タスクは、通し順位が後ろでも親の直後に並ぶ."""
+    alpha = _extract_id(
+        runner.invoke(app, ["add", "alpha", "--description", "d"]).stdout
+    )
+    runner.invoke(app, ["add", "bravo", "--description", "d"])
+    runner.invoke(app, ["add", "charlie", "--description", "d", "--parent", alpha])
+    result = runner.invoke(app, ["board", "--status", "todo"])
+    assert result.exit_code == 0, result.stdout
+    out = result.stdout
+    assert out.index("alpha") < out.index("charlie") < out.index("bravo")
+
+
+def test_board_orders_cards_under_hidden_parent():
+    """親が表示対象外の列でも、子タスクは親の順位に従って並ぶ."""
+    runner.invoke(app, ["add", "bravo", "--description", "d"])
+    alpha = _extract_id(
+        runner.invoke(app, ["add", "alpha", "--description", "d", "--top"]).stdout
+    )
+    runner.invoke(app, ["add", "charlie", "--description", "d", "--parent", alpha])
+    runner.invoke(app, ["status", alpha, "in_progress"])
+    result = runner.invoke(app, ["board", "--status", "todo"])
+    assert result.exit_code == 0, result.stdout
+    out = result.stdout
+    assert out.index("charlie") < out.index("bravo")
+
+
+def test_board_card_shows_parent_title():
+    alpha = _extract_id(
+        runner.invoke(app, ["add", "alpha", "--description", "d"]).stdout
+    )
+    runner.invoke(app, ["add", "charlie", "--description", "d", "--parent", alpha])
+    result = runner.invoke(app, ["board"])
+    assert result.exit_code == 0, result.stdout
+    assert "↳ alpha" in result.stdout
+
+
+def test_show_brief_omits_children_records_and_logs():
+    task_id = _extract_id(
+        runner.invoke(
+            app, ["add", "T1", "--description", "desc-1", "--next-action", "next-1"]
+        ).stdout
+    )
+    runner.invoke(app, ["add", "child-1", "--description", "d", "--parent", task_id])
+    runner.invoke(app, ["log", task_id, "--summary", "log-1"])
+    result = runner.invoke(app, ["show", task_id, "--brief"])
+    assert result.exit_code == 0, result.stdout
+    assert "desc-1" in result.stdout
+    assert "next-1" in result.stdout
+    assert "child-1" not in result.stdout
+    assert "Active Decisions" not in result.stdout
+    assert "log-1" not in result.stdout
+
+
+def test_logs_lists_logs_across_tasks():
+    first = _extract_id(
+        runner.invoke(app, ["add", "task-one", "--description", "d"]).stdout
+    )
+    second = _extract_id(
+        runner.invoke(app, ["add", "task-two", "--description", "d"]).stdout
+    )
+    runner.invoke(app, ["log", first, "--summary", "log-one"])
+    runner.invoke(
+        app, ["log", second, "--summary", "log-two", "--next-action", "next-two"]
+    )
+    result = runner.invoke(app, ["logs"])
+    assert result.exit_code == 0, result.stdout
+    out = result.stdout
+    assert "task-one" in out
+    assert "task-two" in out
+    assert "next: next-two" in out
+    assert out.index("log-one") < out.index("log-two")
+
+
+def test_logs_limit_keeps_most_recent():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    runner.invoke(app, ["log", task_id, "--summary", "log-old"])
+    runner.invoke(app, ["log", task_id, "--summary", "log-new"])
+    result = runner.invoke(app, ["logs", "--limit", "1"])
+    assert result.exit_code == 0, result.stdout
+    assert "log-new" in result.stdout
+    assert "log-old" not in result.stdout
+
+
+def test_logs_since_filters_by_date():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    runner.invoke(app, ["log", task_id, "--summary", "log-one"])
+    past = runner.invoke(app, ["logs", "--since", "2000-01-01"])
+    assert "log-one" in past.stdout
+    future = runner.invoke(app, ["logs", "--since", "2999-01-01"])
+    assert future.exit_code == 0
+    assert "No logs" in future.stdout
+
+
+def test_logs_invalid_since():
+    result = runner.invoke(app, ["logs", "--since", "yesterday"])
+    assert result.exit_code == 1
+    assert "Invalid --since" in result.stdout
+
+
+def test_record_resolve_question_via_cli():
+    task_id = _extract_id(
+        runner.invoke(app, ["add", "T1", "--description", "d"]).stdout
+    )
+    log_id = _extract_id(runner.invoke(app, ["log", task_id, "--summary", "l"]).stdout)
+    add_out = runner.invoke(
+        app,
+        [
+            "record",
+            "add",
+            task_id,
+            "--kind",
+            "question",
+            "--log-id",
+            log_id,
+            "--summary",
+            "ask-it",
+        ],
+    )
+    rec_id = _extract_id(add_out.stdout)
+    result = runner.invoke(app, ["record", "resolve", rec_id])
+    assert result.exit_code == 0, result.stdout
+    list_all = runner.invoke(app, ["record", "list", task_id, "--all"])
+    assert "[resolved]" in list_all.stdout
