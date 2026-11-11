@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.9...tasukura-v0.1.10) (2026-11-11)
+
+
+### Features
+
+* Order board by tree, add tk logs, show --brief, and question resolve ([#28](https://github.com/mixidota2/tasukura/issues/28)) ([2a4b798](https://github.com/mixidota2/tasukura/commit/2a4b7988b0408b51edd9e2bfc29010c6c21836e0))
+
 ## [0.1.9](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.8...tasukura-v0.1.9) (2026-10-12)
 
 
