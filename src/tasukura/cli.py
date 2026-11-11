@@ -59,6 +59,47 @@ def _is_stale(record: Record, stale_after_days: int) -> bool:
     return age.days >= stale_after_days
 
 
+def _parse_since(value: str) -> str:
+    """Parse ``--since`` into an ISO8601 UTC string comparable with ``created_at``.
+
+    A value without a timezone (e.g. ``2026-01-31``) is read as local time.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        typer.echo(
+            f"Invalid --since: {value!r} (use YYYY-MM-DD or an ISO8601 datetime)"
+        )
+        raise typer.Exit(1)  # noqa: B904
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _tree_order(tasks: list[Task]) -> list[Task]:
+    """Return tasks in the order the tree view walks them (parents before children).
+
+    ``tasks`` must be sorted by position. ``position`` only orders siblings, so this
+    is the order that reflects a task's priority across the whole tree.
+    """
+    children: dict[str | None, list[Task]] = {}
+    for t in tasks:
+        children.setdefault(t.parent_id, []).append(t)
+
+    ordered: list[Task] = []
+    seen: set[str] = set()
+
+    def _walk(parent_id: str | None) -> None:
+        for child in children.get(parent_id, []):
+            if child.id in seen:
+                continue
+            seen.add(child.id)
+            ordered.append(child)
+            _walk(child.id)
+
+    _walk(None)
+    ordered.extend(t for t in tasks if t.id not in seen)
+    return ordered
+
+
 def _parse_status(value: str) -> TaskStatus:
     """Parse a status string, exiting with a clean error on invalid input."""
     try:
@@ -345,6 +386,37 @@ def log_delete(log_id: str) -> None:
     typer.echo(f"Deleted log: {_short_id(entry.id)}  {entry.summary}")
 
 
+@app.command("logs")
+def logs_command(
+    since: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Only logs created at or after this date / datetime "
+            "(YYYY-MM-DD or ISO8601; local time unless a timezone is given)"
+        ),
+    ] = None,
+    limit: Annotated[
+        int, typer.Option(help="Show only the most recent N logs (0 for no limit)")
+    ] = 50,
+) -> None:
+    """List progress logs across all tasks, oldest first."""
+    since_utc = _parse_since(since) if since else None
+    with _get_db() as db:
+        entries = db.list_logs(since=since_utc, limit=limit)
+        titles = {t.id: t.title for t in db.list_tasks()}
+    if not entries:
+        typer.echo("No logs")
+        return
+    for entry in entries:
+        typer.echo(
+            f"{_short_id(entry.id)}  [{entry.created_at[:16]}] "
+            f"{_short_id(entry.task_id)}  {titles.get(entry.task_id, '')}"
+        )
+        typer.echo(f"  {entry.summary}")
+        if entry.next_action_set:
+            typer.echo(f"  next: {entry.next_action_set}")
+
+
 @app.command()
 def show(
     task_id: str,
@@ -366,6 +438,13 @@ def show(
             help="Number of recent logs to display (0 disables, --full shows all)",
         ),
     ] = 5,
+    brief: Annotated[
+        bool,
+        typer.Option(
+            "--brief",
+            help="Show only the task itself (no children, records, or logs)",
+        ),
+    ] = False,
 ) -> None:
     """Show task details, active records, and recent logs."""
     parsed_kind = _parse_record_kind(kind) if kind else None
@@ -396,6 +475,9 @@ def show(
     if task.next_action:
         typer.echo(f"  next: {task.next_action}")
     typer.echo(f"  created: {task.created_at}")
+
+    if brief:
+        return
 
     if child_tasks:
         typer.echo("\nChildren:")
@@ -503,6 +585,13 @@ def board(
     with _get_db() as db:
         done_since = None if all_tasks else _done_since_cutoff()
         tasks = db.list_tasks(statuses=statuses, done_since=done_since)
+        all_in_tree_order = _tree_order(db.list_tasks())
+
+    # Order cards the way `tk list` walks the tree, so a task ranked under a
+    # high-priority parent is not pushed down by its global position.
+    tree_rank = {t.id: i for i, t in enumerate(all_in_tree_order)}
+    titles = {t.id: t.title for t in all_in_tree_order}
+    tasks.sort(key=lambda t: tree_rank[t.id])
 
     display_statuses = [s for s in TaskStatus if statuses is None or s in statuses]
     by_status: dict[TaskStatus, list[Task]] = {s: [] for s in display_statuses}
@@ -531,6 +620,8 @@ def board(
         if t.source_id:
             card.append(f" {t.source_id}", style="blue")
         card.append("\n")
+        if t.parent_id:
+            card.append(f" ↳ {titles[t.parent_id]}\n", style="dim")
         if t.next_action:
             card.append(f" → {t.next_action}\n", style="dim italic")
         return card
@@ -744,7 +835,7 @@ def record_update(
 
 @record_app.command("resolve")
 def record_resolve(record_id: str) -> None:
-    """Mark a blocker record as resolved."""
+    """Mark a blocker or question record as resolved."""
     with _get_db() as db:
         resolved_id = _resolve_record_id(db, record_id)
         try:

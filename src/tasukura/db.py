@@ -604,18 +604,18 @@ class TaskDB:
         return updated
 
     def resolve_record(self, record_id: str) -> Record:
-        """Mark a blocker record as resolved. Sets resolved_at to now.
+        """Mark a blocker or question record as resolved. Sets resolved_at to now.
 
         Raises:
-            ValueError: If record is not found or is not a blocker.
+            ValueError: If record is not found or is not a blocker / question.
         """
         record = self.get_record(record_id)
         if record is None:
             msg = f"Record {record_id} not found"
             raise ValueError(msg)
-        if record.kind != RecordKind.BLOCKER:
+        if record.kind not in (RecordKind.BLOCKER, RecordKind.QUESTION):
             msg = (
-                f"Only blocker records can be resolved "
+                f"Only blocker and question records can be resolved "
                 f"(record {record_id} is {record.kind.value})"
             )
             raise ValueError(msg)
@@ -744,6 +744,28 @@ class TaskDB:
             (task_id,),
         ).fetchall()
         return [self._row_to_log(r) for r in rows]
+
+    def list_logs(self, since: str | None = None, limit: int = 0) -> list[ProgressLog]:
+        """List progress logs across all tasks, oldest first.
+
+        Args:
+            since: Only logs created at or after this ISO8601 UTC datetime.
+            limit: Keep only the most recent N logs. 0 means no limit.
+        """
+        query = (
+            "SELECT id, task_id, summary, details, remaining, next_action_set, created_at "
+            "FROM progress_logs"
+        )
+        params: list[str | int] = []
+        if since is not None:
+            query += " WHERE created_at >= ?"
+            params.append(since)
+        query += " ORDER BY created_at DESC"
+        if limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(query, params).fetchall()
+        return [self._row_to_log(r) for r in reversed(rows)]
 
     @staticmethod
     def _row_to_log(r: tuple) -> ProgressLog:

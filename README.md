@@ -63,17 +63,18 @@ tk list --source jira
 | `tk log` | Record progress. `--next-action "X"` updates task and persists as log history; `--description "X"` updates task description |
 | `tk log-update` | Update an existing progress log entry |
 | `tk log-delete` | Delete a progress log (fails cleanly if a record references it) |
+| `tk logs` | List progress logs across all tasks, oldest first. `--since YYYY-MM-DD` / `--limit N` to vary |
 | `tk record add` | Add a typed record (decision/finding/blocker/question/hypothesis) promoted from a log; `--supersedes <id>` to replace an older record |
 | `tk record list` | List records for a task (active by default) |
 | `tk record show` | Show a record's full details; `--with-log` also dereferences the source progress log |
 | `tk record update` | Update a record's summary or details (typo / 補足 only; use `--supersedes` on add for semantic changes) |
-| `tk record resolve` | Mark a blocker record as resolved |
+| `tk record resolve` | Mark a blocker or question record as resolved |
 | `tk record obsolete` | Mark a record as obsolete (no replacement) |
 | `tk record verify` | Mark a record as verified (update last_verified_at) |
 | `tk record delete` | Permanently delete a mistaken record (prefer `obsolete` for valid records) |
 | `tk rank` | Change display order |
-| `tk board` | Kanban board view |
-| `tk show` | Show task details, active records grouped by kind, and recent logs. `--full` / `--kind X` / `--logs N` to vary |
+| `tk board` | Kanban board view. Cards follow the tree order of `tk list` and show the parent task's title |
+| `tk show` | Show task details, active records grouped by kind, and recent logs. `--full` / `--kind X` / `--logs N` to vary; `--brief` shows only the task itself |
 
 Task IDs can be shortened — type just enough characters to uniquely identify a task.
 
