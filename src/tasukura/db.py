@@ -85,16 +85,40 @@ class TaskDB:
             os.chmod(path.parent, stat.S_IRWXU)
         except OSError:
             pass
+        # SQLite derives sidecar permissions from the database file when WAL is
+        # enabled. Create new databases privately before opening SQLite, rather
+        # than tightening only the main file after sidecars already exist.
+        # Existing databases (including recoverable legacy WALs) are untouched.
+        if str(path) != ":memory:":
+            # Preserve SQLite's support for dangling symlinks without letting
+            # SQLite create their missing target using the ambient umask.
+            create_path = path.resolve() if path.is_symlink() else path
+            try:
+                fd = os.open(create_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                pass
+            else:
+                os.close(fd)
         self._conn = sqlite3.connect(str(path))
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.executescript(_SCHEMA)
-        self._run_migrations()
-        # Restrict DB file to owner read/write only
         try:
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.executescript(_SCHEMA)
+            self._run_migrations()
+            # Restrict DB file to owner read/write only
+            try:
+                os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
+        except BaseException as init_error:
+            try:
+                self._conn.close()
+            except BaseException as close_error:
+                # Cleanup must not replace the original initialization failure.
+                init_error.add_note(
+                    f"Connection cleanup also failed: {type(close_error).__name__}"
+                )
+            raise
 
     def __enter__(self) -> "TaskDB":
         return self
