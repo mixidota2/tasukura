@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.10...tasukura-v0.1.11) (2026-11-13)
+
+
+### Bug Fixes
+
+* Create SQLite databases privately and clean up failed initialization ([#30](https://github.com/mixidota2/tasukura/issues/30)) ([786f2eb](https://github.com/mixidota2/tasukura/commit/786f2eb1cdaff112d6a489e9c9e7959fee052dbe))
+
 ## [0.1.10](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.9...tasukura-v0.1.10) (2026-11-11)
 
 
