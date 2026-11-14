@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "scripts/check_installed_wheel.py"
       - "pyproject.toml"
       - "uv.lock"
       - "release-please-config.json"
@@ -16,6 +17,7 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "scripts/check_installed_wheel.py"
       - "pyproject.toml"
       - "uv.lock"
       - "release-please-config.json"
@@ -48,6 +50,30 @@ jobs:
       - name: Run tests
         run: uv run pytest -v
 
+  test-wheel-current:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Build the checked-out wheel
+        run: uv build --wheel --python ${{ matrix.python-version }} --out-dir "$RUNNER_TEMP/tasukura-wheel"
+      - name: Install wheel and current dependencies separately
+        run: |
+          uv venv --python ${{ matrix.python-version }} "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" "$RUNNER_TEMP"/tasukura-wheel/*.whl 'pytest>=9.0.2'
+          uv pip freeze --python "$RUNNER_TEMP/wheel-venv/bin/python"
+      - name: Check wheel origin and run canonical tests
+        env:
+          PYTHONPATH: ""
+        run: '"$RUNNER_TEMP/wheel-venv/bin/python" scripts/check_installed_wheel.py'
+
   lint:
     runs-on: ubuntu-latest
 
@@ -61,10 +87,10 @@ jobs:
         run: uv sync
 
       - name: Ruff check
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ scripts/
 
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/
+        run: uv run ruff format --check src/ tests/ scripts/
 
   typecheck:
     runs-on: ubuntu-latest
@@ -79,4 +105,4 @@ jobs:
         run: uv sync
 
       - name: Type check with ty
-        run: uv run ty check src/
+        run: uv run ty check src/ scripts/
