@@ -95,9 +95,7 @@ os._exit(17)
             ("committed",)
         ]
         assert db._conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert (
-            stat.S_IMODE(path.with_name(path.name + "-wal").stat().st_mode) == expected
-        )
+        assert stat.S_IMODE(path.with_name(path.name + "-wal").stat().st_mode) == 0o600
 
 
 def test_concurrent_first_creation_keeps_private_files(tmp_path):
