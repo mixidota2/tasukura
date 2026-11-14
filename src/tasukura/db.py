@@ -79,17 +79,13 @@ class TaskDB:
 
     def __init__(self, db_path: str | Path) -> None:
         path = Path(db_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Restrict directory to owner-only access
-        try:
-            os.chmod(path.parent, stat.S_IRWXU)
-        except OSError:
-            pass
         # SQLite derives sidecar permissions from the database file when WAL is
         # enabled. Create new databases privately before opening SQLite, rather
         # than tightening only the main file after sidecars already exist.
-        # Existing databases (including recoverable legacy WALs) are untouched.
+        # Existing directories can be workspaces or shared temporary roots;
+        # never change their permissions. Only a newly created leaf is private.
         if str(path) != ":memory:":
+            path.parent.mkdir(mode=stat.S_IRWXU, parents=True, exist_ok=True)
             # Preserve SQLite's support for dangling symlinks without letting
             # SQLite create their missing target using the ambient umask.
             create_path = path.resolve() if path.is_symlink() else path
@@ -99,17 +95,22 @@ class TaskDB:
                 pass
             else:
                 os.close(fd)
+            # Tighten the database before SQLite derives new sidecar modes.
+            # Keep legacy WAL/SHM contents for recovery, securing only their
+            # file modes rather than restricting the unrelated parent folder.
+            target = path.resolve()
+            for file in (target, Path(f"{target}-wal"), Path(f"{target}-shm")):
+                try:
+                    if stat.S_ISREG(file.lstat().st_mode):
+                        os.chmod(file, stat.S_IRUSR | stat.S_IWUSR)
+                except OSError:
+                    pass
         self._conn = sqlite3.connect(str(path))
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
             self._run_migrations()
-            # Restrict DB file to owner read/write only
-            try:
-                os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-            except OSError:
-                pass
         except BaseException as init_error:
             try:
                 self._conn.close()

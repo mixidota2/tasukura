@@ -105,6 +105,14 @@ hypothesis = 10
 
 The environment variable `TK_DB_PATH` overrides the database path. `TK_CONFIG_PATH` overrides the config file location.
 
+On POSIX systems, a newly created immediate parent directory uses owner-only permissions.
+Existing parent directories keep their permissions, including shared workspaces
+and temporary directories. The database and any existing SQLite WAL/SHM files
+are made owner-readable/writable before opening, where permissions allow; their
+contents are preserved for recovery. In-memory databases do not touch filesystem
+permissions. This is not a substitute for access controls on an untrusted shared
+directory.
+
 ## Agent Skill
 
 The `tk` skill is maintained in
