@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.11...tasukura-v0.1.12) (2026-11-14)
+
+
+### Bug Fixes
+
+* Preserve existing database parent permissions ([#33](https://github.com/mixidota2/tasukura/issues/33)) ([9a312fc](https://github.com/mixidota2/tasukura/commit/9a312fcd7345bd88d4cb3ea17d4a8554c51168ef))
+
 ## [0.1.11](https://github.com/mixidota2/tasukura/compare/tasukura-v0.1.10...tasukura-v0.1.11) (2026-11-13)
 
 
